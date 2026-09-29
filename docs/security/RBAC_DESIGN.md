@@ -135,7 +135,7 @@ Role rules:
 
 ## Assignment Rules
 
-Phase 1:
+Phase 2:
 
 - Users receive roles only through `user_roles`.
 - No direct user-to-permission table is implemented.
@@ -199,4 +199,3 @@ Do not introduce:
 - per-request SQL policies without a documented scope context;
 - unbounded `*` permissions;
 - permission code changes without migration/compatibility review.
-

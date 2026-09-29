@@ -23,7 +23,7 @@ Exit criteria:
 
 ## Phase 0.5: Foundation Hardening
 
-**Status: current**
+**Status: complete**
 
 Goals:
 
@@ -43,20 +43,20 @@ Exit criteria:
 - repository has no obsolete Python package path;
 - `make check` and `docker compose config` pass.
 
-## Phase 1A: Organization And Identity Data Foundation
+## Phase 1A: Organization And Identity Persistence Foundation
 
-**Status: next**
+**Status: complete**
 
 Goals:
 
 - create initial database migrations;
-- implement Department model, repository, service, schemas, and admin APIs when ready;
+- implement Department model, repository, service, and schemas without management HTTP APIs;
 - implement Position model and assignment relationships;
 - implement User model with no physical delete;
 - implement user-department relationships with a current primary assignment;
 - implement user-position relationships;
 - implement first-level/recursive department tree reads with PostgreSQL CTEs;
-- provide migration, repository/service/schema, and test coverage.
+- provide the first Alembic migration plus repository/service/schema and PostgreSQL test coverage.
 
 Explicit exclusions:
 
@@ -78,8 +78,11 @@ Primary tests:
 - department parent/child/grandchild recursive lookup;
 - only one current primary department assignment;
 - user/department/position soft-delete and historical retention behavior.
+- automated Alembic upgrade/downgrade/upgrade against PostgreSQL 16.
 
 ## Phase 1B: Authentication
+
+**Status: next**
 
 Goals:
 

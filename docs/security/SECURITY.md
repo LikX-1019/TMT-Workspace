@@ -10,7 +10,7 @@
 
 ## Authentication
 
-Phase 1 uses local employee accounts with username/password authentication and JWT access tokens. The architecture reserves an authentication-provider boundary for future enterprise WeChat, Feishu, LDAP, or OIDC integration, but no provider becomes a core dependency.
+Phase 1B will use local employee accounts with username/password authentication and JWT access tokens. Phase 1A deliberately creates employee identity only and no password/credential columns or authentication routes. The architecture reserves an authentication-provider boundary for future enterprise WeChat, Feishu, LDAP, or OIDC integration, but no provider becomes a core dependency.
 
 Login requirements:
 
@@ -31,9 +31,11 @@ Initial policy:
 - support future breach-password checking;
 - hash with Argon2 or bcrypt through a maintained library.
 
-Phase 1 must define reset flows, administrator-forced reset, and reuse restrictions. Passwords are never recoverable or logged.
+Phase 1B must define reset flows, administrator-forced reset, and reuse restrictions. Passwords are never recoverable or logged.
 
 ## Token Architecture
+
+Phase 1A does not issue tokens. The following is the approved browser contract for Phase 1B:
 
 Access tokens:
 
@@ -69,7 +71,7 @@ Cookie requirements:
 - `SameSite=Lax` or `Strict` after an explicit cross-site product/security decision;
 - scoped path (normally the refresh endpoint path where operationally practical);
 - CSRF protection for cookie-authenticated state-changing endpoints, using origin checks plus a maintained CSRF mechanism where needed;
-- explicit cookie name, lifetime, domain, and rotation policy before Phase 1B.
+- explicit cookie name, lifetime, domain, and rotation policy during Phase 1B design.
 
 Access-token persistence is not approved. A page reload restores authentication through the valid refresh-cookie endpoint, not by reading a token from browser storage.
 
@@ -199,14 +201,19 @@ Disabling or recording resignation should revoke active refresh tokens. Existing
 
 ## Security Roadmap
 
-Phase 1:
+Phase 1A:
+
+- employee identity and organization persistence only;
+- no authentication routes, JWT/password code, or credential storage.
+
+Phase 1B:
 
 - password hashing;
 - login/refresh/logout;
 - account-state checks;
 - login logging;
 - basic throttling;
-- initial RBAC dependencies.
+- no RBAC dependencies yet; those follow in Phase 2.
 
 Phase 2:
 

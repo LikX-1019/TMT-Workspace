@@ -4,6 +4,8 @@
 
 The backend is a modular monolith under `backend/app`. It is one deployable unit, but each platform/business module owns its HTTP interface, DTOs, service rules, persistence model, repository queries, permission dependencies, and tests. First-party imports always start with `app`.
 
+In Phase 1A, `departments`, `positions`, and `users` intentionally implement models, schemas, repositories, and services without `api.py` files or management routes. There is no authenticated administrator yet; exposing organization mutation routes before Phase 1B would violate the platform security boundary. Health routes remain the only public API surface.
+
 ```text
 app/api/v1/router.py       # Router composition only
 app/common/                # Response envelope, pagination, shared DTOs
@@ -44,7 +46,7 @@ dependencies.py # Only when the module has reusable route dependencies
 tests.py        # Or a mirror under backend/tests
 ```
 
-Register a module router in `app/api/v1/router.py`; register model modules in `app/db/models.py`; register permission seed data in the module's future permission catalog. Never wire one module directly to another module's private internals.
+Register a module router only when the module has an authenticated API contract; register model modules in `app/db/models.py`. Never wire one module directly to another module's private internals.
 
 ## Infrastructure Responsibilities
 
@@ -61,4 +63,3 @@ Register a module router in `app/api/v1/router.py`; register model modules in `a
 - Keep every module independently understandable.
 - Keep configuration in `app.core.config`; do not scatter environment reads.
 - Make new infrastructure optional until a phase requires it.
-

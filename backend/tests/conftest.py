@@ -3,7 +3,6 @@
 from collections.abc import AsyncIterator
 
 import pytest
-from app.core.config import get_settings
 from asgi_lifespan import LifespanManager
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -11,8 +10,6 @@ from httpx import ASGITransport, AsyncClient
 
 @pytest.fixture
 async def app() -> AsyncIterator[FastAPI]:
-    settings = get_settings()
-    settings.database_url = "sqlite+aiosqlite:///:memory:"
     from app.main import create_app
 
     application = create_app()

@@ -137,7 +137,7 @@ A future `user_data_scope_override` can be added for emergency or delegated acce
 - Inactive/deleted department: retain historical row linkage but do not grant new scope expansion.
 - Role changed during request: request uses the transaction-consistent resolved context; later requests resolve the new role.
 
-## Phase 1 Minimum Implementation
+## Future Scope Implementation
 
 The first scope implementation should include:
 

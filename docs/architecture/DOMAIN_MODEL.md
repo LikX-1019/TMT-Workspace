@@ -1,6 +1,6 @@
 # Domain Model
 
-Phase 0 documents the model before implementing tables or CRUD. The first implementation phase must follow these ownership and lifecycle rules.
+Phase 1A implements the organization and identity persistence foundation. Authentication, RBAC, workspaces, and audit remain future contracts and must not be inferred from these tables.
 
 ## Model Principles
 
@@ -12,35 +12,41 @@ Phase 0 documents the model before implementing tables or CRUD. The first implem
 
 ## Entity Overview
 
+Implemented in Phase 1A:
+
+```text
+User --- UserDepartment --- Department
+  |                         |
+  |                         +--- Department (parent_id)
+  +--- UserPosition --- Position
+```
+
+Planned and explicitly deferred:
+
 ```text
 User --- UserRole --- Role --- RolePermission --- Permission
  |                       |
  |                       +--- DataScopePolicy
- |
- +--- UserDepartmentAssignment --- Department
- +--- UserPositionAssignment ---- Position
 
 Workspace --- WorkspaceDepartment --- Department
 Workspace --- Menu --- Permission
 
 Announcement --- AnnouncementScope ---> Department / Role / User
 
-AuditLog ---> User
-RefreshToken / LoginLog ---> User
+AuditLog / LoginLog / RefreshToken ---> User
 ```
 
 ## User
 
-`User` represents an employee or system operator account.
+`User` represents an employee or system operator identity. It is not an authentication credential aggregate.
 
-Planned fields:
+Implemented fields:
 
 | Field | Meaning |
 | --- | --- |
 | `id` | Stable UUID |
 | `employee_no` | Company employee number |
 | `username` | Unique login identifier |
-| `password_hash` | Maintained password digest; never reversible |
 | `name` | Display/legal name for internal UI |
 | `email` | Unique where present |
 | `mobile` | Unique where present |
@@ -54,6 +60,9 @@ Planned fields:
 
 Rules:
 
+- `employee_no` and `username` are unique for the full record lifecycle, including soft deletion.
+- `email` and `mobile` are nullable and unique where present.
+- Password hashing and login credentials are deferred to Phase 1B, likely as a separate local credential model.
 - A resigned employee remains queryable for historical and audit purposes.
 - `account_status=disabled` blocks login and API access even if roles remain assigned.
 - Role assignment is through `user_roles`; direct user-permission grants are not part of the initial platform.
@@ -79,29 +88,28 @@ Rules:
 
 - Unlimited hierarchy is supported through the adjacency model.
 - A department must not become its own ancestor.
-- `code` is unique among non-deleted departments.
+- `code` is unique for the full record lifecycle, including soft deletion.
 - Re-parenting must be audited because it can change department-based data scope.
 - The first implementation uses `departments.parent_id` plus PostgreSQL recursive CTEs for tree reads and descendant lookup. A materialized closure table is a future optimization only if measured query frequency, organization size, or database plan evidence requires it.
 
-## UserDepartmentAssignment
+## UserDepartment
 
-This association supports the Phase 1 simple case and the future multi-department case.
+This association supports multiple department membership without temporal history.
 
-Planned fields:
+Implemented fields:
 
 - `user_id`
 - `department_id`
 - `is_primary`
-- `valid_from` / `valid_to`
-- audit fields
+- `created_at` / `updated_at`
 
-One user has at most one current primary assignment. Additional assignments may represent matrix organizations or temporary roles. The active primary department is the default basis for department data scope.
+One user has at most one primary assignment. Additional assignments may represent matrix organizations or temporary roles. The active primary department is the default basis for future department data scope.
 
 ## Position
 
 `Position` describes a job title or organizational role, such as Operations Supervisor or Developer.
 
-Planned fields:
+Implemented fields:
 
 - `id`
 - `name`
@@ -117,15 +125,14 @@ Rules:
 - A user may have one or more position assignments.
 - Reporting and organizational views use positions; authorization checks use roles.
 
-## UserPositionAssignment
+## UserPosition
 
-Planned fields:
+Implemented fields:
 
 - `user_id`
 - `position_id`
 - `is_primary`
-- `valid_from` / `valid_to`
-- audit fields
+- `created_at` / `updated_at`
 
 This keeps organizational title separate from system access. For example, two Finance Managers can receive different roles, and one Developer can temporarily hold a Product Manager position without changing permissions.
 

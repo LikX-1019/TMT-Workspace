@@ -1,8 +1,9 @@
 """Declarative base and database timestamp conventions."""
 
 from datetime import UTC, datetime
+from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, MetaData
+from sqlalchemy import DateTime, MetaData, Uuid
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 NAMING_CONVENTION = {
@@ -18,6 +19,18 @@ def utc_now() -> datetime:
     """Return a timezone-aware UTC timestamp."""
 
     return datetime.now(UTC)
+
+
+def new_uuid() -> UUID:
+    """Generate the platform-wide core entity identifier."""
+
+    return uuid4()
+
+
+class UUIDPrimaryKeyMixin:
+    """Application-generated PostgreSQL UUID primary key."""
+
+    id: Mapped[UUID] = mapped_column(Uuid(), primary_key=True, default=new_uuid)
 
 
 class Base(DeclarativeBase):

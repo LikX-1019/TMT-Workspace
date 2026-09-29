@@ -3,6 +3,7 @@
 import asyncio
 from logging.config import fileConfig
 
+import app.db.models  # noqa: F401  # Populate Base.metadata for Alembic.
 from alembic import context
 from app.core.config import get_settings
 from app.db.base import Base
