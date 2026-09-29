@@ -1,0 +1,85 @@
+[project]
+name = "tmt-workspace"
+version = "0.1.0"
+description = "TMT Workspace enterprise platform foundation"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "alembic>=1.13,<2",
+  "asyncpg>=0.29,<1",
+  "fastapi>=0.115,<1",
+  "pydantic>=2.8,<3",
+  "pydantic-settings>=2.4,<3",
+  "redis>=5.0,<6",
+  "sqlalchemy[asyncio]>=2.0,<3",
+  "uvicorn[standard]>=0.30,<1",
+]
+
+[dependency-groups]
+dev = [
+  "aiosqlite>=0.20,<1",
+  "asgi-lifespan>=2.1,<3",
+  "httpx>=0.27,<1",
+  "mypy>=1.11,<2",
+  "pytest>=8.3,<9",
+  "pytest-asyncio>=0.23,<1",
+  "pytest-cov>=5.0,<6",
+  "ruff>=0.6,<1",
+  "types-redis>=4.6,<5",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "A",
+  "ASYNC",
+  "B",
+  "C4",
+  "E",
+  "F",
+  "I",
+  "N",
+  "PT",
+  "RUF",
+  "S",
+  "SIM",
+  "T20",
+  "UP",
+]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+show_error_codes = true
+mypy_path = "src"
+packages = ["app"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["uvicorn.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["app"]
+branch = true

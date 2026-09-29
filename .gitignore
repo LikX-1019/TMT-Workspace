@@ -17,4 +17,5 @@ htmlcov/
 
 .DS_Store
 *.log
-
+node_modules/
+frontend/dist/

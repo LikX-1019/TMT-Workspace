@@ -1,6 +1,6 @@
 # TMT Workspace
 
-TMT Workspace is the company-internal enterprise workstation foundation. It intentionally starts as a modular monolith built around identity, organization, RBAC, workspace navigation, announcements, audit, and platform infrastructure. Department-specific business systems will be added as decoupled workspace modules later.
+TMT Workspace is the company-internal enterprise workstation monorepo. It starts with a FastAPI modular monolith and a Vue 3 console foundation around identity, organization, RBAC, workspace navigation, announcements, audit, and platform infrastructure. Department-specific business systems will be added as decoupled workspace modules later.
 
 Phase 0 establishes the repository contract and engineering foundation. It does not implement user, role, workspace, or announcement CRUD.
 
@@ -14,6 +14,17 @@ Phase 0 establishes the repository contract and engineering foundation. It does 
 - PostgreSQL 16
 - Redis 7
 - Ruff, MyPy, Pytest
+- Vue 3, TypeScript, Vite, Pinia, Vue Router, Element Plus
+
+## Repository Layout
+
+```text
+frontend/          # Vue 3 + TypeScript workstation console
+backend/           # FastAPI + SQLAlchemy modular monolith
+docs/              # Product, architecture, security, database, API, development docs
+infra/             # Nginx and operational assets
+.github/           # CI
+```
 
 ## Quick Start
 
@@ -22,6 +33,8 @@ Phase 0 establishes the repository contract and engineering foundation. It does 
 ```bash
 make install
 cp .env.example .env
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env.local
 ```
 
 ### 2. Start local dependencies
@@ -38,10 +51,16 @@ After the first model migration is introduced:
 make migrate
 ```
 
-### 4. Run the API
+### 4. Run services
 
 ```bash
-make dev
+make api
+```
+
+In another terminal:
+
+```bash
+make web
 ```
 
 Useful URLs:
@@ -50,6 +69,7 @@ Useful URLs:
 - Readiness: http://localhost:8000/api/v1/health/ready
 - OpenAPI: http://localhost:8000/api/openapi.json
 - Swagger UI: http://localhost:8000/api/docs
+- Console: http://localhost:5173
 
 ## Validation
 
@@ -62,4 +82,3 @@ make check
 Read [AGENTS.md](AGENTS.md) before changing source code. It defines module boundaries, dependency direction, FastAPI/SQLAlchemy conventions, security rules, and the validation required from every contributor.
 
 Phase 0 documentation lives under [docs](docs/README.md).
-

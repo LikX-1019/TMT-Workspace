@@ -1,0 +1,120 @@
+:root {
+  color: #17212b;
+  background: #f4f6f8;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+.workspace-shell {
+  min-height: 100vh;
+}
+
+.workspace-aside {
+  border-right: 1px solid #dce1e7;
+  background: #ffffff;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 64px;
+  padding: 0 20px;
+  border-bottom: 1px solid #e5e9ee;
+}
+
+.brand-mark {
+  display: grid;
+  min-width: 38px;
+  height: 28px;
+  place-items: center;
+  border-radius: 4px;
+  color: #ffffff;
+  background: #175cd3;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.brand-name {
+  color: #17212b;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.workspace-menu {
+  border-right: 0;
+}
+
+.workspace-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #dce1e7;
+  background: #ffffff;
+}
+
+.operator {
+  color: #334155;
+}
+
+.workspace-main {
+  padding: 24px;
+}
+
+.page-heading {
+  margin-bottom: 16px;
+}
+
+.page-heading h1,
+.error-page h1,
+.login-panel h1 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+.page-heading p {
+  margin: 8px 0 0;
+  color: #61748b;
+}
+
+.login-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  background: #eef1f5;
+}
+
+.login-panel {
+  display: grid;
+  width: min(390px, calc(100vw - 48px));
+  gap: 16px;
+  padding: 32px;
+  border: 1px solid #dce1e7;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.login-brand {
+  margin: 0;
+  color: #175cd3;
+  font-weight: 700;
+}
+
+.error-page {
+  display: grid;
+  min-height: 100vh;
+  place-content: center;
+  gap: 8px;
+  text-align: center;
+}
+

@@ -13,24 +13,36 @@ These rules apply to every AI agent and human contributor working in this reposi
 ## Repository Map
 
 ```text
-src/tmt_workspace/
-  api/             # Composition of versioned routers only
-  core/            # Configuration, canonical errors, response envelope, shared policy
-  db/              # Engine, session, ORM base, shared mixins
-  modules/         # Business/platform modules; each owns its vertical slice
-tests/             # Unit, API, integration, and permission tests
-alembic/           # Async database migrations
+frontend/
+  src/api/         # HTTP client wrappers and typed response contracts
+  src/layouts/     # Application shell
+  src/router/      # Static shell routes; dynamic routes remain backend-driven
+  src/stores/      # Pinia state
+  src/modules/     # System/public feature views and module-scoped components
+  src/workspaces/  # Future department workspace entry views
+
+backend/
+  app/api/         # Composition of versioned routers only
+  app/core/        # Configuration, security, logging, exceptions, shared policy
+  app/common/      # Canonical response, pagination, DTO, and utility contracts
+  app/db/          # Engine, session, ORM base, model registry, shared mixins
+  app/modules/     # Business/platform modules; each owns its vertical slice
+  app/integrations/ # Isolated third-party provider adapters
+  migrations/      # Async Alembic migrations
+  tests/           # Unit, API, integration, and permission tests
+
 docs/              # Durable architecture and decision documentation
+infra/             # Nginx, deployment assets, and operational scripts
 ```
 
 ## Architecture Rules
 
 ### Module boundary
 
-Each module under `modules/<module_name>/` should organize code explicitly:
+Each backend module under `backend/app/modules/<module_name>/` should organize code explicitly:
 
 ```text
-modules/<module_name>/
+backend/app/modules/<module_name>/
   api.py           # HTTP routing, dependency wiring, status codes
   schemas.py       # Request/response DTOs
   service.py       # Application rules and orchestration
@@ -71,6 +83,7 @@ Repositories contain persistence-specific logic. They receive `AsyncSession`, re
 - Use `async def` for I/O-bound API and repository paths. Do not call blocking I/O in async functions; move blocking work to a worker or explicitly documented synchronous boundary.
 - Prefer dependency injection over globals. The only process-wide singletons are the configured engine/session factory and settings cache.
 - Names use `PascalCase` for types, `snake_case` for functions/variables, `UPPER_SNAKE_CASE` for constants, and singular module names where possible.
+- First-party backend imports begin with `app.`. Do not introduce `backend.app` as an import namespace.
 - Exceptions must derive from `AppError` for expected failures. Do not use exceptions for ordinary control flow.
 - Docstrings explain contracts, invariants, and non-obvious behavior. Do not narrate every obvious line.
 - Imports are grouped by standard library, third party, and first-party and sorted by Ruff.
@@ -168,7 +181,7 @@ Update documentation in the same change when you:
 - alter security behavior,
 - add a development workflow requirement.
 
-For database changes, update `docs/DATABASE_DESIGN.md` and the RBAC/data-scope docs when applicable.
+For database changes, update `docs/database/DATABASE_DESIGN.md` and the RBAC/data-scope docs when applicable.
 
 ## Required Validation
 
@@ -178,7 +191,7 @@ Before reporting a task complete, run:
 make check
 ```
 
-This executes Ruff format check, Ruff lint, MyPy, and Pytest. If a tool cannot run, report the exact command, error, and remaining risk. Do not silently declare partial success.
+This executes backend Ruff format check, Ruff lint, MyPy, Pytest, and the frontend type-checked production build. If a tool cannot run, report the exact command, error, and remaining risk. Do not silently declare partial success.
 
 ## AI Change Workflow
 
@@ -192,4 +205,3 @@ This executes Ruff format check, Ruff lint, MyPy, and Pytest. If a tool cannot r
 8. **Document** durable decisions and update migrations/OpenAPI as required.
 
 AI agents must not expand a task into unrelated refactoring. If a necessary prerequisite is missing, state the decision made and record it in the relevant documentation.
-
