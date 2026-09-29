@@ -75,6 +75,12 @@ A service is the transaction boundary and the place where authorization intent, 
 
 Repositories contain persistence-specific logic. They receive `AsyncSession`, return ORM objects or typed projection rows, and do not commit unless the repository contract explicitly documents that behavior. The default request transaction commits in `get_db_session`.
 
+### Workspace versus domain capability
+
+`src/workspaces/<name>/` is frontend navigation and access composition only. It is not a backend domain boundary.
+
+Backend module names must describe actual business capabilities, such as `products`, `orders`, `inventory`, `advertising`, or `reports`. Do not create `modules/operation`, `modules/finance`, or another workspace-named module by default. A workspace may compose multiple domain capabilities.
+
 ## Python Rules
 
 - Target Python 3.12+.

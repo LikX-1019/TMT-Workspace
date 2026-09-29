@@ -118,6 +118,13 @@ The application mounts this under `/api/v1`. Adding a module router must not alt
 
 Configuration is loaded through Pydantic Settings using the `TMT_` prefix. `.env` is for local developer convenience only; real secrets are supplied by the deployment environment.
 
+Secret policy:
+
+- `local` and `testing` may use the documented fallback secret for convenient startup;
+- `development` and `production` require an explicit `TMT_SECRET_KEY`;
+- placeholder/fallback values are rejected when the explicit-secret policy applies;
+- there is no automatically generated fallback in development/production.
+
 Supported logical environments:
 
 - `local`: developer workstation, permissive defaults allowed;
@@ -135,9 +142,21 @@ For example, a future procurement module may reference `users.id` and `workspace
 
 ## Extension Points
 
-### Business workspace modules
+### Domain modules and workspace mapping
 
-Future modules such as `backend/app/modules/operation` or `warehouse` register routes, permissions, and workspace/menu metadata through the same platform contracts as the system management area.
+Backend modules are named after actual business capabilities, not frontend workspace labels. Future examples include:
+
+```text
+backend/app/modules/products/
+backend/app/modules/orders/
+backend/app/modules/inventory/
+backend/app/modules/advertising/
+backend/app/modules/reports/
+```
+
+A **Workspace** is a navigation and access container. It composes menus, permissions, routes, and department access into a coherent employee experience. A **Domain Module** owns a business capability and its data. For example, Operation Center may present routes from `products`, `advertising`, and `reports`; Warehouse Center may compose `inventory` and `orders`. Do not create a `modules/operation` module just because a workspace has that name.
+
+Each capability module registers routes, permissions, and workspace/menu metadata through the same platform contracts as the system management area.
 
 ### Integrations
 

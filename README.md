@@ -26,6 +26,12 @@ infra/             # Nginx and operational assets
 .github/           # CI
 ```
 
+## Configuration Contract
+
+Backend environment variables use the `TMT_` prefix (`TMT_DATABASE_URL`, `TMT_REDIS_URL`, `TMT_SECRET_KEY`). Local and testing environments may use the development fallback secret. `development` and `production` require an explicit `TMT_SECRET_KEY`; placeholder values fail closed.
+
+The Docker Compose backend runs with `TMT_ENVIRONMENT=development`, so it requires a real non-placeholder `TMT_SECRET_KEY` in the root environment before startup.
+
 ## Quick Start
 
 ### 1. Create dependencies

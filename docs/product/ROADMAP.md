@@ -2,7 +2,7 @@
 
 ## Phase 0: Architecture And Repository Bootstrap
 
-**Status: current**
+**Status: complete**
 
 Goals:
 
@@ -21,33 +21,92 @@ Exit criteria:
 - architecture and platform policies are documented;
 - future phases can proceed without redesigning module boundaries.
 
-## Phase 1: Authentication, User, And Department
+## Phase 0.5: Foundation Hardening
+
+**Status: current**
+
+Goals:
+
+- make the `TMT_` configuration contract explicit and test it;
+- enforce explicit-secret policy for development/production;
+- remove the obsolete nested Python source layout;
+- freeze the browser token contract before authentication exists;
+- clarify workspace navigation versus backend domain capability boundaries;
+- make adjacency plus recursive CTE the first department hierarchy implementation;
+- split organization/identity work from authentication work.
+
+Exit criteria:
+
+- configuration override and secret-policy tests pass;
+- frontend contains no token browser-storage contract;
+- architecture and security documents agree;
+- repository has no obsolete Python package path;
+- `make check` and `docker compose config` pass.
+
+## Phase 1A: Organization And Identity Data Foundation
+
+**Status: next**
 
 Goals:
 
 - create initial database migrations;
+- implement Department model, repository, service, schemas, and admin APIs when ready;
+- implement Position model and assignment relationships;
+- implement User model with no physical delete;
+- implement user-department relationships with a current primary assignment;
+- implement user-position relationships;
+- implement first-level/recursive department tree reads with PostgreSQL CTEs;
+- provide migration, repository/service/schema, and test coverage.
+
+Explicit exclusions:
+
+- password hashing;
+- login;
+- JWT;
+- access-token dependencies;
+- refresh cookies;
+- logout;
+- current-user endpoint;
+- account-state authentication checks;
+- login logs;
+- brute-force protection.
+
+Primary tests:
+
+- duplicate username/email/employee number;
+- department cycle prevention;
+- department parent/child/grandchild recursive lookup;
+- only one current primary department assignment;
+- user/department/position soft-delete and historical retention behavior.
+
+## Phase 1B: Authentication
+
+Goals:
+
 - implement password hashing;
-- implement local login, refresh, logout;
-- implement access-token dependency and account-state checks;
-- implement user CRUD with no physical delete;
-- implement department tree and closure maintenance;
-- implement login logs and basic brute-force throttling;
-- bootstrap initial system administrator.
+- implement local login;
+- implement short-lived access tokens;
+- implement refresh token as `HttpOnly`, `Secure`, `SameSite` cookie;
+- implement refresh-token rotation and reuse detection;
+- implement logout and cookie clearing;
+- implement current-user endpoint;
+- validate active/disabled/resigned account state before authorization;
+- implement login logs;
+- implement username/account/IP brute-force protection.
 
 Primary tests:
 
 - authentication success/failure;
-- expired/revoked token;
-- disabled/resigned account;
-- duplicate username/email/employee number;
-- department cycle prevention;
-- department move/closure integrity.
+- expired/revoked/reused refresh token;
+- refresh cookie is HttpOnly, Secure, SameSite, and never exposed in JSON;
+- disabled/resigned account cannot authenticate or retain access;
+- logout revokes the token family;
+- brute-force lockout/throttling.
 
-## Phase 2: Positions, Roles, Permissions, And RBAC
+## Phase 2: Roles, Permissions, And RBAC
 
 Goals:
 
-- implement positions and assignments;
 - implement roles, permissions, role permissions, and user roles;
 - implement permission code catalog/seed;
 - implement reusable backend permission dependencies;

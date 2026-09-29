@@ -35,7 +35,7 @@ class ScopeContext:
 
 Rules:
 
-- `descendant_department_ids` comes from the department closure table.
+- `descendant_department_ids` is resolved from `departments.parent_id` with a PostgreSQL recursive CTE.
 - `custom_department_ids` comes from the role or future user-scope override table.
 - If a user has multiple roles, the effective scope is the safest union required by the operation's documented policy. Usually this means the union of non-`ALL` scopes; any `ALL` role grants all allowed rows for that operation.
 - A missing department context does not silently become `ALL`.
@@ -78,7 +78,7 @@ Planned mapping:
 | --- | --- |
 | `ALL` | workspace condition only, if applicable |
 | `DEPARTMENT` | `department_column == context.primary_department_id` |
-| `DEPARTMENT_AND_CHILDREN` | `department_column.in_(context.descendant_department_ids)` |
+| `DEPARTMENT_AND_CHILDREN` | `department_column.in_(context.descendant_department_ids)` from a recursive subtree query |
 | `SELF` | `owner_column == context.user_id` or assignment-specific condition |
 | `CUSTOM` | `department_column.in_(context.custom_department_ids)` |
 
@@ -98,21 +98,16 @@ If a query is workspace-scoped, the repository must constrain by the current wor
 
 ## Department Tree
 
-The organization model uses an adjacency table for editing and a closure table for querying:
-
-```text
-departments(id, parent_id, ...)
-department_closure(ancestor_id, descendant_id, depth)
-```
+The organization model uses `departments.parent_id` for adjacency. Descendant lookup uses a PostgreSQL recursive CTE. `department_closure` is a future optimization, not part of the first implementation.
 
 When a department moves:
 
-1. validate that the new parent is not a descendant;
-2. recompute affected closure rows in one transaction;
+1. validate that the new parent is not the department itself or one of its descendants;
+2. change `parent_id` in one transaction;
 3. audit old and new parentage;
 4. invalidate relevant data-scope caches.
 
-Data rows generally store the directly owning `department_id`. During historical review, the relevant department closure is evaluated at query time unless a documented reporting table intentionally freezes the department path.
+Data rows generally store the directly owning `department_id`. During historical review, the applicable recursive subtree is resolved at query time unless a documented reporting table intentionally freezes the department path.
 
 ## Multiple Roles And Precedence
 
@@ -150,5 +145,5 @@ The first scope implementation should include:
 - typed scope context construction;
 - permission dependency plus scope dependency ordering;
 - one integration test proving `DEPARTMENT_AND_CHILDREN` cannot read an outside-department row;
+- recursive subtree behavior for parent, child, and grandchild departments;
 - one integration test proving `SELF` cannot mutate another user's resource.
-

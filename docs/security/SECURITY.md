@@ -44,6 +44,8 @@ Access tokens:
 Refresh tokens:
 
 - longer-lived but revocable;
+- delivered to the browser only as `HttpOnly`, `Secure`, `SameSite` cookies;
+- never readable by frontend JavaScript and never returned in the login response body;
 - stored server-side as a secure hash only;
 - rotated on use;
 - support replacement lineage (`replaced_by_id`) and reuse detection;
@@ -51,14 +53,25 @@ Refresh tokens:
 
 The platform must check account/session state before trusting an unexpired access token for sensitive operations. Stateless JWT alone is not a revocation mechanism.
 
-Recommended flow:
+Recommended browser flow:
 
 1. client authenticates;
-2. server returns access token and refresh token;
+2. server returns only the access token in the response body and sets the refresh cookie;
 3. client sends `Authorization: Bearer <access-token>`;
 4. dependencies validate signature, expiry, token type, and active account/session state;
-5. refresh endpoint rotates the refresh token and issues a new access token;
+5. refresh endpoint authenticates from the cookie, rotates it, and issues a new access token;
 6. reuse or logout revokes the token family.
+
+Cookie requirements:
+
+- `HttpOnly`;
+- `Secure` in development over HTTPS and always in production;
+- `SameSite=Lax` or `Strict` after an explicit cross-site product/security decision;
+- scoped path (normally the refresh endpoint path where operationally practical);
+- CSRF protection for cookie-authenticated state-changing endpoints, using origin checks plus a maintained CSRF mechanism where needed;
+- explicit cookie name, lifetime, domain, and rotation policy before Phase 1B.
+
+Access-token persistence is not approved. A page reload restores authentication through the valid refresh-cookie endpoint, not by reading a token from browser storage.
 
 Token algorithm/configuration comes from settings. Secrets are never committed.
 
@@ -215,4 +228,3 @@ Phase 5:
 - audit export controls;
 - security regression suite;
 - production secret/rotation runbook.
-

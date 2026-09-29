@@ -99,17 +99,29 @@ Constraints/indexes:
 - index on `status`;
 - application/database check preventing self-parent.
 
-### department_closure
+### Department hierarchy strategy
 
-Key columns:
+The first implementation intentionally has no `department_closure` table. `departments.parent_id` is the single source of adjacency. PostgreSQL recursive CTEs compute a department subtree when department or descendant data is required:
 
-- `ancestor_id UUID FK departments.id`
-- `descendant_id UUID FK departments.id`
-- `depth INTEGER NOT NULL`
-- composite PK `(ancestor_id, descendant_id)`
-- indexes on both foreign keys
+```sql
+WITH RECURSIVE descendants AS (
+    SELECT id, parent_id
+    FROM departments
+    WHERE id = :root_id
 
-Each department also has a depth-zero self row.
+    UNION ALL
+
+    SELECT child.id, child.parent_id
+    FROM departments AS child
+    INNER JOIN descendants AS parent
+        ON child.parent_id = parent.id
+    WHERE child.deleted_at IS NULL
+)
+SELECT id
+FROM descendants;
+```
+
+Services validate that a move cannot create a cycle before changing `parent_id`, and repository tests cover parent/child and multi-level descendant queries. A `department_closure` table is a **future optimization**. Introduce it only when measured organization size, query frequency, or PostgreSQL execution plans prove that recursive reads are no longer adequate; the migration must define ownership for closure-row recompute and failure recovery.
 
 ### positions
 
@@ -377,4 +389,3 @@ Foreign keys are mandatory. `ON DELETE` behavior is explicit:
 Every foreign key used in a join or lookup is indexed. Add composite indexes only after identifying real query patterns. A typical list endpoint needs indexes for filters, sort, and pagination, for example `(workspace_id, status, published_at DESC)`.
 
 Do not add indexes speculatively to every column; write/query tests and PostgreSQL plans should justify broad changes.
-

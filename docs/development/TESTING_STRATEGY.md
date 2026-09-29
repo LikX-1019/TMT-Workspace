@@ -38,7 +38,7 @@ Use isolated PostgreSQL test databases for:
 - ORM mapping and constraints;
 - unique/partial indexes;
 - foreign keys;
-- department closure maintenance;
+- department recursive-subtree queries and cycle prevention;
 - repository filters;
 - migration upgrade/downgrade where practical.
 
@@ -175,4 +175,3 @@ uv run pytest
 ```
 
 Database-specific CI should add PostgreSQL service containers before Phase 1 merges. Security-sensitive changes should be labeled/reviewed even when all automated tests pass.
-

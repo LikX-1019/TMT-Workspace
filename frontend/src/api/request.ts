@@ -1,5 +1,6 @@
 import axios from 'axios'
 import type { AxiosInstance } from 'axios'
+import { getRuntimeAccessToken } from '@/utils/runtime-token'
 
 export interface ApiResponse<T> {
   success: boolean
@@ -13,7 +14,7 @@ export const request: AxiosInstance = axios.create({
 })
 
 request.interceptors.request.use((config) => {
-  const token = localStorage.getItem('tmt_workspace.access_token')
+  const token = getRuntimeAccessToken()
 
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
@@ -26,11 +27,9 @@ request.interceptors.response.use(
   (response) => response,
   (error: unknown) => {
     if (axios.isAxiosError(error) && error.response?.status === 401) {
-      localStorage.removeItem('tmt_workspace.access_token')
       window.location.assign('/login')
     }
 
     return Promise.reject(error)
   },
 )
-

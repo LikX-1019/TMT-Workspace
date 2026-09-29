@@ -77,11 +77,11 @@ Planned fields:
 
 Rules:
 
-- Unlimited hierarchy is supported.
+- Unlimited hierarchy is supported through the adjacency model.
 - A department must not become its own ancestor.
 - `code` is unique among non-deleted departments.
 - Re-parenting must be audited because it can change department-based data scope.
-- A closure table is used to answer descendant queries efficiently while preserving the adjacency model.
+- The first implementation uses `departments.parent_id` plus PostgreSQL recursive CTEs for tree reads and descendant lookup. A materialized closure table is a future optimization only if measured query frequency, organization size, or database plan evidence requires it.
 
 ## UserDepartmentAssignment
 
@@ -345,4 +345,3 @@ Planned fields include:
 - `created_at`
 
 It supports brute-force detection and security review without becoming a general audit log.
-

@@ -140,6 +140,25 @@ Planned:
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/auth/me`
 
+Authentication response contract:
+
+```json
+{
+  "success": true,
+  "data": {
+    "access_token": "..."
+  },
+  "meta": null
+}
+```
+
+The login and refresh response bodies expose only the access token. The backend sets the refresh token as an `HttpOnly`, `Secure`, `SameSite` cookie and never returns it in JSON. Frontend JavaScript must not read or store the refresh token.
+
+- `POST /auth/login`: validates credentials and establishes the refresh-cookie session.
+- `POST /auth/refresh`: authenticates from the cookie, rotates it, and returns a new access token.
+- `POST /auth/logout`: revokes the refresh-token family and clears the cookie.
+- `GET /auth/me`: resolves the current account from the access token and active server-side account/session state.
+
 `/auth/me` returns the current user profile, active roles, effective permission codes, workspace access, and menu/navigation data or references to dedicated endpoints.
 
 Recommended initial split:
@@ -150,7 +169,7 @@ GET /api/v1/auth/workspaces
 GET /api/v1/auth/menus?workspace_id=...
 ```
 
-The combined endpoint is convenient for initial page load, but workspace menus can be large and workspace-specific. Dedicated endpoints reduce accidental overfetch and make cache invalidation clearer. If a combined bootstrap endpoint is added later, it must remain read-only and not become an authorization decision.
+The combined endpoint is convenient for initial page load, but workspace menus can be large and workspace-specific. Dedicated endpoints reduce accidental overfetch and make cache invalidation clearer. If a combined bootstrap endpoint is added later, it must remain read-only and not become an authorization decision. Page reloads may call refresh followed by these read endpoints to restore a session.
 
 ### Users
 
@@ -286,4 +305,3 @@ Within `/api/v1`:
 - Deprecate before removing and document the replacement.
 
 New major contracts go under a new version prefix rather than breaking `/api/v1` for all internal clients.
-
