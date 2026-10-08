@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useAuthStore } from '@/stores/auth'
@@ -7,9 +8,14 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
-function signOut(): void {
-  auth.signOut()
-  void router.push({ name: 'login' })
+const displayName = computed(() => auth.currentUser?.name ?? '账号')
+
+async function signOut(): Promise<void> {
+  try {
+    await auth.signOut()
+  } finally {
+    void router.push({ name: 'login' })
+  }
 }
 </script>
 
@@ -30,7 +36,7 @@ function signOut(): void {
       <el-header class="workspace-header" height="64px">
         <div />
         <el-dropdown>
-          <span class="operator">账号</span>
+          <span class="operator">{{ displayName }}</span>
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item @click="signOut">退出登录</el-dropdown-item>

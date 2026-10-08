@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 
 import { useAuthStore } from '@/stores/auth'
 
@@ -15,6 +16,9 @@ async function submit(): Promise<void> {
   try {
     await auth.signIn(form)
     await router.push({ name: 'home' })
+  } catch {
+    // 统一通用失败提示，不区分用户名不存在与密码错误。
+    ElMessage.error('用户名或密码错误')
   } finally {
     loading.value = false
   }
@@ -39,4 +43,3 @@ async function submit(): Promise<void> {
     </form>
   </main>
 </template>
-

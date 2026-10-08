@@ -12,6 +12,7 @@ jobs:
       TMT_ENVIRONMENT: testing
       TMT_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/tmt_workspace_test
       TMT_TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/tmt_workspace_test
+      TMT_REDIS_URL: redis://localhost:6379/15
     services:
       postgres:
         image: postgres:16-alpine
@@ -23,6 +24,15 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -51,4 +61,5 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm --prefix frontend ci
+      - run: npm --prefix frontend run test -- --run
       - run: npm --prefix frontend run build

@@ -10,70 +10,65 @@
 
 ## Authentication
 
-Phase 1B will use local employee accounts with username/password authentication and JWT access tokens. Phase 1A deliberately creates employee identity only and no password/credential columns or authentication routes. The architecture reserves an authentication-provider boundary for future enterprise WeChat, Feishu, LDAP, or OIDC integration, but no provider becomes a core dependency.
+Implemented in Phase 1B: local employee accounts authenticate with username/password through `POST /api/v1/auth/login`. Phase 1A creates employee identity only; credentials live in `local_credentials`, kept separate from `users` by design. The architecture reserves an authentication-provider boundary for future enterprise WeChat, Feishu, LDAP, or OIDC integration, but no provider becomes a core dependency.
 
-Login requirements:
+Implemented login behavior:
 
-- constant-time password verification through a maintained library;
-- generic failure message that does not reveal whether username or password was wrong;
-- login attempt logging;
-- brute-force throttling by username, account, IP, and optionally device;
-- locked/disabled/resigned account rejection;
+- constant-time password verification through `pwdlib` (Argon2id), including a dummy verification against a fixed hash when the account or credential does not exist;
+- generic failure message (`Incorrect username or password.`) that does not reveal whether the username or password was wrong;
+- login attempt evidence in `login_logs` (result plus `failure_reason` such as `bad_password`, `user_disabled`, `user_resigned`, `user_deleted`, `missing_credential`);
+- brute-force throttling in Redis by target username and by client IP (default 10 failures / 300 seconds, configurable through `TMT_LOGIN_MAX_ATTEMPTS` / `TMT_LOGIN_WINDOW_SECONDS`); a locked context returns `429 RATE_LIMITED` even for the correct password, and a successful login clears both counters;
+- locked/disabled/resigned/soft-deleted account rejection; `on_leave` employees may still authenticate;
 - successful login updates `last_login_at` and writes `login_logs`.
+
+Credential bootstrap for the first account is an operator action, not an HTTP route: `python -m app.cli create-local-credential --username <name>` (password prompt, never an argument).
 
 ## Password Policy
 
-Initial policy:
+Implemented policy (`app/core/security.py`):
 
 - minimum 12 characters;
-- reject exact username/email/employee number;
-- require breadth across character classes without forcing awkward rotation by default;
-- support future breach-password checking;
-- hash with Argon2 or bcrypt through a maintained library.
+- rejects exact username, employee number, or email (case-insensitive);
+- hashing uses Argon2id through `pwdlib`; verification transparently upgrades legacy-parameter hashes (`check_needs_rehash`) on successful login;
+- failure raises `PASSWORD_POLICY_VIOLATED` (422) without echoing which rule matched.
 
-Phase 1B must define reset flows, administrator-forced reset, and reuse restrictions. Passwords are never recoverable or logged.
+Administrator reset flows and reuse restrictions are future work. Passwords are never recoverable or logged.
 
 ## Token Architecture
 
-Phase 1A does not issue tokens. The following is the approved browser contract for Phase 1B:
+Implemented in Phase 1B.
 
 Access tokens:
 
-- short-lived, initially 30 minutes or less;
-- stateless claims include user ID, token type, issued time, expiry, and minimal session reference;
-- never contain passwords, refresh tokens, broad permission snapshots that can become stale, or secrets.
+- 30 minutes (default; `TMT_ACCESS_TOKEN_TTL_MINUTES`), HS256 via PyJWT;
+- claims are exactly `sub` (user id), `typ=access`, `sid` (session id), `iat`, `exp`, `jti` — no PII, no permission snapshots;
+- held in frontend runtime memory only; never written to `localStorage`/`sessionStorage` and never returned in the refresh response body beyond the standard `access_token` field;
+- every protected request re-checks account and session state server-side (`/auth/me` validates state on each call; Redis revoked-session markers kill live sessions immediately on logout/reuse detection).
 
 Refresh tokens:
 
-- longer-lived but revocable;
-- delivered to the browser only as `HttpOnly`, `Secure`, `SameSite` cookies;
-- never readable by frontend JavaScript and never returned in the login response body;
-- stored server-side as a secure hash only;
-- rotated on use;
-- support replacement lineage (`replaced_by_id`) and reuse detection;
-- revoked at logout, password reset, administrator disable, role/security incident, or account resignation.
+- opaque 384-bit random values (`secrets.token_urlsafe(48)`); browsers only ever hold them in an `HttpOnly` cookie and the database only stores a SHA-256 lookup hash (`refresh_tokens.token_hash`, unique);
+- SHA-256 is deliberate: refresh tokens are 384-bit random values (no low-entropy human secrets), so a fast lookup hash plus server-side rotation/state provides the protection Argon2 would, without adding latency to every refresh;
+- rotated on every use inside one PostgreSQL transaction with `SELECT ... FOR UPDATE` on the token row, recording lineage via `replaced_by_id`;
+- reuse of any rotated/revoked token revokes the entire `session_id` family and marks the session revoked in Redis; the accepted tradeoff is that a delayed retry of an already-rotated cookie also ends the session;
+- revoked at logout, reuse detection, administrator disable, or resignation.
 
-The platform must check account/session state before trusting an unexpired access token for sensitive operations. Stateless JWT alone is not a revocation mechanism.
+Implemented browser flow:
 
-Recommended browser flow:
+1. `POST /auth/login` returns `access_token`, `token_type`, `expires_in` in the body and sets the refresh cookie;
+2. client sends `Authorization: Bearer <access-token>`;
+3. dependencies validate signature, expiry, token type, active account, and Redis revoked-session state;
+4. `POST /auth/refresh` authenticates from the cookie, rotates it, and issues a new access token;
+5. reuse or logout revokes the token family and the session.
 
-1. client authenticates;
-2. server returns only the access token in the response body and sets the refresh cookie;
-3. client sends `Authorization: Bearer <access-token>`;
-4. dependencies validate signature, expiry, token type, and active account/session state;
-5. refresh endpoint authenticates from the cookie, rotates it, and issues a new access token;
-6. reuse or logout revokes the token family.
+Implemented cookie contract:
 
-Cookie requirements:
+- name `tmt_refresh_token`, path `/api/v1/auth` (only auth endpoints receive it);
+- `HttpOnly`, `SameSite=Lax`, `Secure` forced on in production (`refresh_cookie_secure` cannot be false in production);
+- lifetime equals the refresh token TTL (default 14 days);
+- CSRF posture: `SameSite=Lax` blocks cross-site POST navigation cookies, and `/auth/refresh` and `/auth/logout` additionally validate the `Origin` header against `TMT_CORS_ORIGINS` when a browser sends one; non-browser clients may omit it.
 
-- `HttpOnly`;
-- `Secure` in development over HTTPS and always in production;
-- `SameSite=Lax` or `Strict` after an explicit cross-site product/security decision;
-- scoped path (normally the refresh endpoint path where operationally practical);
-- CSRF protection for cookie-authenticated state-changing endpoints, using origin checks plus a maintained CSRF mechanism where needed;
-- explicit cookie name, lifetime, domain, and rotation policy during Phase 1B design.
-
-Access-token persistence is not approved. A page reload restores authentication through the valid refresh-cookie endpoint, not by reading a token from browser storage.
+Access-token persistence is not approved. A page reload restores authentication through `POST /auth/refresh`, never by reading a token from browser storage.
 
 Token algorithm/configuration comes from settings. Secrets are never committed.
 
@@ -89,6 +84,25 @@ resolve_data_scope(...)
 ```
 
 Backend checks are mandatory even if the frontend hides a route/button. Permission resolution uses the active roles and permissions from the database or a correctly invalidated cache. A disabled account or deleted role must not retain access through stale UI state.
+
+### Phase 2B implementation state (enforcement)
+
+- `require_permission(...)` (`app/modules/rbac/dependencies.py`) is the single authorization gate. It depends on `get_current_user`, so unauthenticated requests fail with 401 before any permission logic; only authenticated-but-unauthorized requests get 403. The dependency never catches or rewrites authentication errors.
+- `AuthorizationContext` resolves roles + effective permissions once per request via `Depends` caching. It is request-scoped reuse only — explicitly not a Redis/cross-request permission cache, so grant/role/permission changes take effect on the next request.
+- Fail-fast catalog validation: `require_permission` rejects unknown codes with `ValueError` at dependency-construction time (route import), keeping typos out of production.
+- Denials raise `AuthorizationError` (403, `AUTHORIZATION_FAILED`, empty `details`); the required permission code is logged (user_id + code + route) but never returned to the client.
+- No bypass was added: no `username == "admin"`, no user-id checks, no `is_superuser` flag. `super_admin` still flows exclusively through `AuthorizationService` union resolution.
+
+### Phase 2A implementation state
+
+- `get_current_user` still answers authentication only; permission gating lives in the separate `require_permission` dependency.
+- `AuthorizationService` (`app/modules/rbac/service.py`) resolves roles and effective permission codes: union of active grants → active roles → active permissions, deduplicated, one joined query, no cache.
+- **Super admin strategy**: `super_admin` is a normal system role granted only through `user_roles`. If a user holds it, effective permissions expand dynamically to every active permission code. Rationale: no username/id bypass anywhere (a user named `admin` has zero permissions without grants), new catalog permissions are covered without rewriting assignment rows, and the expansion predicate is directly testable. The resolver checks `role.is_system and role.code == "super_admin"` — nothing else, no special cases.
+- System roles (`super_admin`, `system_admin`, `security_auditor`) are seeded by `python -m app.cli sync-permissions`, are protected from disable/delete through `RoleService`, and cannot be assigned while inactive.
+- Permission codes are a code-owned catalog (`app/modules/rbac/catalog.py`): grammar `<namespace>:<resource>:<action>`, lowercase, no entity IDs, action-kind only in Phase 2A. Sync is an explicit operator command with `--dry-run`; removed codes are disabled and reported stale, never deleted.
+- **No negative permissions**: Phase 2A has grant-only semantics — no deny codes, no precedence rules, no user-direct permission overrides.
+- **No permission cache yet**: resolution reads PostgreSQL per request until profiling justifies a cache with its invalidation contract.
+- Data scope is stored on roles (`data_scope_type`) but unenforced; `custom` scope's department table is deferred (Phase 3.5). Workspace authorization is Phase 3.
 
 ## Data Scope Enforcement
 
@@ -121,16 +135,12 @@ Object IDs are not secrets. Sequential/guessable IDs increase risk and are one r
 
 ## Rate Limiting And Brute Force
 
-Redis is reserved for shared counters because API replicas need consistent limits.
+Redis is used for shared counters because API replicas need consistent limits. Implemented keys:
 
-Initial controls:
+- `auth:login:user:<sha256(username)>` and `auth:login:ip:<client-ip>` counters with a sliding window equal to `TMT_LOGIN_WINDOW_SECONDS`;
+- `auth:revoked-session:<sid>` markers (TTL = access token remaining lifetime) so logout and reuse detection kill live access tokens immediately.
 
-- global/IP request throttling where appropriate;
-- strict login throttling by IP and target account;
-- exponential backoff or temporary lock after repeated failures;
-- enhanced logging/security alerting when thresholds are exceeded.
-
-Limits must be configurable per environment and must not leak account existence through dramatically different responses.
+Counters are per normalized username and per IP independently; a successful login clears both. Responses stay generic so throttling does not leak account existence.
 
 ## CORS
 
@@ -201,25 +211,44 @@ Disabling or recording resignation should revoke active refresh tokens. Existing
 
 ## Security Roadmap
 
-Phase 1A:
+Phase 1A (complete):
 
 - employee identity and organization persistence only;
 - no authentication routes, JWT/password code, or credential storage.
 
-Phase 1B:
+Phase 1B (complete):
 
-- password hashing;
-- login/refresh/logout;
-- account-state checks;
-- login logging;
-- basic throttling;
+- password hashing (Argon2id) and password policy;
+- login/refresh/logout/current-user endpoints;
+- refresh rotation, lineage, and reuse detection with session revocation;
+- account-state checks (disabled/locked/resigned/soft-deleted denied, on-leave allowed);
+- login evidence logging;
+- Redis-backed login throttling;
 - no RBAC dependencies yet; those follow in Phase 2.
 
-Phase 2:
+Phase 2A (complete):
 
-- full permission checks and permission tests;
-- role/permission audit;
-- token/session revocation hardening.
+- role/permission/user-role/role-permission persistence (migration `0003_rbac_foundation`);
+- code-owned permission catalog with explicit, dry-run-able sync;
+- effective-permission resolution service (union semantics, no cache);
+- system role seed and CLI role assignment;
+- `/auth/me` carries roles and permission codes as display data;
+- no enforcement dependencies yet — those are Phase 2B.
+
+Phase 2B (complete):
+
+- `require_permission(...)` dependency with `AuthorizationContext` (request-scoped, Depends-cached);
+- 401/403 separation preserved and regression-tested (15-case matrix);
+- fail-fast catalog validation for permission codes.
+
+Phase 2C (complete):
+
+- all 34 management endpoints gated by `require_permission(...)` with catalog constants; operator identity (`assigned_by`) is server-derived, never client-submitted;
+- user creation cannot mint credentials (no password fields accepted or stored);
+- self-lockout protection: the operator cannot disable/resign themselves, directly or via PATCH (`409`);
+- role-permission replacement validates every code against the catalog (unknown/disabled `422`); `super_admin` rejects stored authorization (`409`);
+- sensitive operations (user lifecycle, department move, role/permission assignment) carry documented audit intent for the Phase 5 audit system;
+- immediate-effect guarantees regression-tested: disable/resign and every grant/remove/replacement change authorization on the next request.
 
 Phase 3:
 

@@ -129,37 +129,83 @@ Rules:
 - Free-text search has module-specific columns and indexes.
 - IDs are UUIDs and rejected early if malformed.
 
-## Planned API Modules
+## API Modules
 
-### Auth
+### Auth (implemented in Phase 1B)
 
-Planned:
+Endpoints:
 
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/refresh`
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/auth/me`
 
-Authentication response contract:
+Login response contract:
 
 ```json
 {
   "success": true,
   "data": {
-    "access_token": "..."
+    "access_token": "<jwt>",
+    "token_type": "bearer",
+    "expires_in": 1800
   },
   "meta": null
 }
 ```
 
-The login and refresh response bodies expose only the access token. The backend sets the refresh token as an `HttpOnly`, `Secure`, `SameSite` cookie and never returns it in JSON. Frontend JavaScript must not read or store the refresh token.
+The login and refresh response bodies expose only the access token. The backend sets the refresh token as an `HttpOnly`, `Secure` (in production), `SameSite=Lax` cookie scoped to `Path=/api/v1/auth` and never returns it in JSON. Frontend JavaScript must not read or store the refresh token.
 
-- `POST /auth/login`: validates credentials and establishes the refresh-cookie session.
-- `POST /auth/refresh`: authenticates from the cookie, rotates it, and returns a new access token.
-- `POST /auth/logout`: revokes the refresh-token family and clears the cookie.
-- `GET /auth/me`: resolves the current account from the access token and active server-side account/session state.
+- `POST /auth/login`: validates credentials (generic `401 AUTHENTICATION_FAILED` for any failure; `429 RATE_LIMITED` when the Redis brute-force threshold is exceeded) and establishes the refresh-cookie session.
+- `POST /auth/refresh`: authenticates from the cookie, rotates it inside one transaction, and returns a new access token. Reuse of a rotated token returns `401` and revokes the whole session family. Requires a browser `Origin` header to match `TMT_CORS_ORIGINS` (absent `Origin` allowed for non-browser clients).
+- `POST /auth/logout`: revokes the refresh-token family, marks the session revoked in Redis, clears the cookie, and always answers `200` (idempotent, even without a cookie). Same `Origin` validation as refresh.
+- `GET /auth/me`: resolves the current account from the access token plus active server-side account/session state (`401 SESSION_REVOKED` for revoked sessions).
 
-`/auth/me` returns the current user profile, active roles, effective permission codes, workspace access, and menu/navigation data or references to dedicated endpoints.
+`/auth/me` returns the identity profile plus, since Phase 2A, `roles` (stable role codes) and `permissions` (effective permission codes, sorted):
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "...",
+    "username": "operator",
+    "name": "...",
+    "employment_status": "active",
+    "account_status": "active",
+    "roles": ["system_admin"],
+    "permissions": ["system:user:list", "system:user:view"],
+    "primary_department": {"id": "...", "name": "Engineering"},
+    "primary_position": null,
+    "last_login_at": "..."
+  },
+  "meta": null
+}
+```
+
+These fields are display data; visible UI never replaces backend permission checks. Workspace access and menu data remain future contracts and are intentionally absent.
+
+### Protected endpoints (Phase 2B)
+
+Every protected endpoint declares its permission through the reusable
+dependency, and business code references catalog constants rather than string
+literals:
+
+```python
+from app.modules.rbac.catalog import Permissions
+from app.modules.rbac.dependencies import require_permission
+
+@router.get(
+    "/users",
+    dependencies=[Depends(require_permission(Permissions.USER_LIST))],
+)
+async def list_users(...) -> SuccessEnvelope[...]: ...
+```
+
+Status semantics stay strict: `401` (`AUTHENTICATION_FAILED`) for missing,
+invalid, expired tokens, revoked sessions, or inactive accounts; `403`
+(`AUTHORIZATION_FAILED`, `details` empty) for an authenticated identity
+without the required permission. The 403 body never echoes the required
+permission code or any authorization structure.
 
 Recommended initial split:
 
@@ -171,62 +217,96 @@ GET /api/v1/auth/menus?workspace_id=...
 
 The combined endpoint is convenient for initial page load, but workspace menus can be large and workspace-specific. Dedicated endpoints reduce accidental overfetch and make cache invalidation clearer. If a combined bootstrap endpoint is added later, it must remain read-only and not become an authorization decision. Page reloads may call refresh followed by these read endpoints to restore a session.
 
-### Users
-
-Planned:
+### Users (implemented in Phase 2C)
 
 ```text
-GET    /api/v1/users
-POST   /api/v1/users
-GET    /api/v1/users/{user_id}
-PATCH  /api/v1/users/{user_id}
-POST   /api/v1/users/{user_id}/disable
-POST   /api/v1/users/{user_id}/enable
-POST   /api/v1/users/{user_id}/roles
-DELETE /api/v1/users/{user_id}/roles/{role_id}
+GET    /api/v1/users                              system:user:list
+GET    /api/v1/users/{user_id}                    system:user:view
+POST   /api/v1/users                              system:user:create      -> 201
+PATCH  /api/v1/users/{user_id}                    system:user:update
+POST   /api/v1/users/{user_id}/disable            system:user:disable
+POST   /api/v1/users/{user_id}/enable             system:user:disable
+POST   /api/v1/users/{user_id}/resign             system:user:update
+GET    /api/v1/users/{user_id}/roles              system:role:view
+POST   /api/v1/users/{user_id}/roles/{role_id}    system:role:assign
+DELETE /api/v1/users/{user_id}/roles/{role_id}    system:role:assign
 ```
+
+Contracts:
+
+- list: `page`/`page_size`/`keyword` (username/name/email/employee_no ilike)/`account_status`/`employment_status`/`department_id`/`order_by` (allowlist `created_at|username|employee_no`)/`order` (`asc|desc`); `department_id` is a query condition, not a data-scope enforcement.
+- detail: identity fields plus `primary_department`/`primary_position` summaries; credentials are never exposed.
+- create: employee identity only — the request schema has no password field; stray `password`/`password_hash` values are ignored and no credential row is created.
+- lifecycle: disable/enable use the `system:user:disable` code; resign reuses `system:user:update` (employment state, separate from account state). The operator cannot disable/resign themselves — directly or through PATCH (`409`).
+- `POST /users/{user_id}/roles/{role_id}` is idempotent (`newly_assigned` flag); `assigned_by` is always the authenticated operator. Disabled roles are rejected with `409`.
 
 Users are not physically deleted.
 
-### Departments
-
-Planned:
+### Departments (implemented in Phase 2C)
 
 ```text
-GET   /api/v1/departments/tree
-GET   /api/v1/departments
-POST  /api/v1/departments
-GET   /api/v1/departments/{department_id}
-PATCH /api/v1/departments/{department_id}
-POST  /api/v1/departments/{department_id}/move
-POST  /api/v1/departments/{department_id}/disable
+GET   /api/v1/departments                            system:department:list
+GET   /api/v1/departments/tree                       system:department:list
+GET   /api/v1/departments/{department_id}            system:department:view
+POST  /api/v1/departments                            system:department:create -> 201
+PATCH /api/v1/departments/{department_id}            system:department:update
+POST  /api/v1/departments/{department_id}/move       system:department:move
+POST  /api/v1/departments/{department_id}/disable    system:department:disable
+POST  /api/v1/departments/{department_id}/enable     system:department:disable
 ```
 
-Department moves require special validation and audit.
+Move reuses Phase 1A cycle prevention: `parent_id == self` and moves into a descendant return `422`. The tree endpoint returns composed nodes from a recursive CTE and contains only active departments. Audit intent for moves is documented in the service for the future audit system.
 
-### Positions, Roles, Permissions
-
-Each has list/create/read/update contracts. Sensitive operations are explicit:
+### Positions (implemented in Phase 2C)
 
 ```text
-PUT    /api/v1/roles/{role_id}/permissions
-POST   /api/v1/users/{user_id}/roles
-DELETE /api/v1/users/{user_id}/roles/{role_id}
+GET   /api/v1/positions                          system:position:list
+GET   /api/v1/positions/{position_id}            system:position:view
+POST  /api/v1/positions                          system:position:create -> 201
+PATCH /api/v1/positions/{position_id}            system:position:update
+POST  /api/v1/positions/{position_id}/disable    system:position:disable
+POST  /api/v1/positions/{position_id}/enable     system:position:disable
 ```
+
+Positions describe organizational jobs and never produce role or permission side effects.
+
+### Roles (implemented in Phase 2C)
+
+```text
+GET   /api/v1/roles                              system:role:list
+GET   /api/v1/roles/{role_id}                    system:role:view
+POST  /api/v1/roles                              system:role:create -> 201
+PATCH /api/v1/roles/{role_id}                    system:role:update
+POST  /api/v1/roles/{role_id}/disable            system:role:disable
+POST  /api/v1/roles/{role_id}/enable             system:role:disable
+GET   /api/v1/roles/{role_id}/permissions        system:role:view
+PUT   /api/v1/roles/{role_id}/permissions        system:role:assign
+```
+
+`code` and `is_system` cannot be changed through the API (the update schema does not declare them and the service ignores them). System roles reject disable. `PUT .../permissions` replaces the whole explicit permission set in one transaction and reports `added`/`removed`/`unchanged`; unknown or disabled codes return `422`; `super_admin` returns `409` because its powers are dynamic expansion, never stored grants.
+
+### Permissions (implemented in Phase 2C, read-only)
+
+```text
+GET /api/v1/permissions                          system:permission:list
+GET /api/v1/permissions/{permission_id}          system:permission:list
+```
+
+Filters: `module`, `kind`, `status`, `keyword`. The catalog is code-owned; permission definitions change only through `sync-permissions`, so no mutation endpoints exist (unregistered methods answer `405`).
 
 ### Workspaces And Menus
 
-Planned:
+Not implemented yet — Phase 3A delivered the persistence foundation only: the code-owned workspace registry (`sync-workspaces` CLI), `workspaces`/`workspace_departments`/`menus` tables, and workspace access permission codes (`workspace:<code>:access`, derived from the registry into the permission catalog). No workspace or menu endpoint exists; even workspace rows are created by the registry sync, not by API.
+
+Planned (Phase 3B+):
 
 ```text
-GET   /api/v1/workspaces
-POST  /api/v1/workspaces
-PATCH /api/v1/workspaces/{workspace_id}
+GET   /api/v1/auth/workspaces
+GET   /api/v1/auth/menus?workspace_id=...
 GET   /api/v1/workspaces/{workspace_id}/menus
-POST  /api/v1/workspaces/{workspace_id}/menus
-PATCH /api/v1/menus/{menu_id}
-POST  /api/v1/menus/{menu_id}/move
 ```
+
+Management endpoints for workspaces/menus are deliberately deferred until a product need exists; the registry stays the definition of record. Workspace access enforcement (`require_workspace_access`) arrives with Phase 3B and uses the same `require_permission` machinery — menu visibility remains UX only.
 
 ### Announcements
 

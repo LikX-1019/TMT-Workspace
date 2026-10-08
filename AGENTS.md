@@ -19,7 +19,7 @@ frontend/
   src/router/      # Static shell routes; dynamic routes remain backend-driven
   src/stores/      # Pinia state
   src/modules/     # System/public feature views and module-scoped components
-  src/workspaces/  # Future department workspace entry views
+  src/workspaces/  # Workspace entry placeholders; canonical codes fixed by the backend registry
 
 backend/
   app/api/         # Composition of versioned routers only
@@ -139,12 +139,38 @@ workspace:operation:access
 operation:product:create
 ```
 
+Implementation state (Phase 2A):
+
+- Permission codes are a **code-owned catalog** in `app/modules/rbac/catalog.py`. Add new codes there (with a future enforcement point), never directly in the database; `python -m app.cli sync-permissions` mirrors the catalog, and `--dry-run` previews changes. Removed codes are disabled and reported stale, never deleted.
+- `AuthorizationService` resolves roles and effective permission codes (union of active grants/roles/permissions; no deny semantics). It must stay free of HTTP, workspace, menu, and data-scope logic.
+- `super_admin` is a normal system role resolved dynamically to all active permissions — never express platform powers as username/ID comparisons.
+- System roles are protected from ordinary disable/delete; role soft-delete keeps `user_roles` history.
+
+Enforcement (Phase 2B):
+
+- `require_permission(...)` lives in `app/modules/rbac/dependencies.py` and is the only way to gate an endpoint. It builds on `get_current_user` (authentication stays separate), resolves an `AuthorizationContext` once per request, and answers through `AuthorizationService` — the dependency itself never encodes role or super-admin rules.
+- Business code must pass catalog constants (`Permissions.USER_LIST`), not scattered string literals. `require_permission` fails fast at dependency-construction time for codes outside the catalog — a typo is a programming error, not a runtime 403.
+- Every newly added protected backend endpoint MUST declare its permission code; "the page hides the button" never replaces a backend check.
+- Every new management endpoint MUST ship three tests: allowed, denied, and unauthenticated.
+- No permission cache: effective permissions are read from PostgreSQL per request; changes take effect on the next request.
+
+Workspaces and menus (Phase 3A):
+
+- A workspace may exist only if it is declared first in the code-owned `Workspace Registry` (`app/modules/workspaces/registry.py`). The database mirrors the registry through `python -m app.cli sync-workspaces` (`--dry-run` previews; stale rows are disabled, never deleted; application startup never writes registry data).
+- A workspace `code` is a stable software identifier. It becomes part of permission codes, menus, role grants, and external integrations — it is immutable for the full lifetime of the workspace (soft-deleted rows keep occupying their code).
+- Runtime creation of arbitrary workspace codes is prohibited. `WorkspaceService` has no create path; the registry sync is the only writer.
+- Backend domains MUST NOT be organized by workspace directory names (`modules/operation`, `modules/finance` for workspace reasons are forbidden). Workspaces compose backend capabilities; they do not define them. System Management is platform capability, never a business workspace.
+- Workspace access MUST use the unified RBAC path: `workspace:<workspace_code>:access` permission codes are derived deterministically from the registry into the permission catalog (`sync-permissions` writes them) and reach users only through `UserRole → Role → RolePermission`. No `role_workspaces`/`user_workspaces` second authorization system is allowed.
+- `WorkspaceDepartment` is product/organization metadata only. It MUST NOT be treated as an access grant, and department membership must never imply workspace access.
+- `menu.permission_code` controls UI/navigation visibility only. It must reference an active catalog code (unknown codes are rejected at the service boundary), and the backend must never trust menu visibility as authorization.
+- Menu trees are navigation only (`directory`/`page`); button/action permissions are not menu rows.
+
 Rules:
 
-- Users acquire permissions through roles. Direct user-permission grants are prohibited in Phase 1.
+- Users acquire permissions through roles. Direct user-permission grants are prohibited.
 - Positions describe organizational jobs and must never be used as authorization roles.
 - Menus may reference permission codes, but frontend visibility is not authorization.
-- Backend dependencies must check action permission, workspace access, and applicable data scope.
+- Backend dependencies must check action permission, workspace access, and applicable data scope (workspace checks: Phase 3; data-scope enforcement: dedicated later phase).
 - Sensitive actions require audit logging at the service layer.
 
 ## Security Rules
@@ -188,6 +214,23 @@ Update documentation in the same change when you:
 - add a development workflow requirement.
 
 For database changes, update `docs/database/DATABASE_DESIGN.md` and the RBAC/data-scope docs when applicable.
+
+## Language Rules
+
+All deliverables produced by AI agents follow this language split:
+
+- **Chinese**: all code comments and docstrings (backend Python, frontend TypeScript/Vue, infra scripts, migration docstrings), deliverable reports, and review summaries.
+- **English stays as-is**: code itself — identifiers, function/type/variable names, string literals that are contract data (permission codes, log keys, error codes), and tooling/configuration keywords.
+
+Rules:
+
+- User-visible AI output (analysis, plans, progress reports, architecture explanations, risk notes, validation results, final reports) defaults to Simplified Chinese. English versions are produced only when explicitly requested.
+- Code and stable technical identifiers stay English.
+- Git commit messages keep English Conventional Commits.
+- Never change existing code's language retroactively; the rule applies to new and modified code from now on.
+- Comments explain contracts, invariants, and non-obvious behavior in Chinese; keep technical terms (table names, class names, HTTP status names) in their original English form inside Chinese sentences.
+- User-facing copy in the frontend is already product Chinese; do not mix English sentences into it.
+- OpenAPI descriptions and validation messages count as deliverable text: write them in Chinese unless a client contract explicitly requires English.
 
 ## Required Validation
 

@@ -60,6 +60,35 @@ class PositionService:
         await self._session.flush()
         return position
 
+    async def disable(self, position_id: UUID) -> Position:
+        position = await self.get_active(position_id)
+        position.status = PositionStatus.DISABLED
+        await self._session.flush()
+        return position
+
+    async def enable(self, position_id: UUID) -> Position:
+        position = await self.get_active(position_id)
+        position.status = PositionStatus.ACTIVE
+        await self._session.flush()
+        return position
+
+    async def list_page(
+        self,
+        *,
+        offset: int,
+        limit: int,
+        keyword: str | None = None,
+        status: PositionStatus | None = None,
+    ) -> tuple[list[Position], int]:
+        """管理端分页列表（含 disabled、不含软删）。"""
+
+        return await self._repository.list_page(
+            offset=offset,
+            limit=limit,
+            keyword=keyword,
+            status=status.value if status is not None else None,
+        )
+
     async def soft_delete(self, position_id: UUID) -> Position:
         position = await self.get_active(position_id)
         position.deleted_at = datetime.now(UTC)

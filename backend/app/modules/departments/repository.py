@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.engine import ScalarResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,6 +58,35 @@ class DepartmentRepository:
         )
         result: ScalarResult[UUID] = await self._session.scalars(statement)
         return list(result)
+
+    async def list_page(
+        self,
+        *,
+        offset: int,
+        limit: int,
+        keyword: str | None = None,
+        status: str | None = None,
+        parent_id: UUID | None = None,
+    ) -> tuple[list[Department], int]:
+        """管理端分页列表：含 disabled、不含软删；sort/name 稳定排序。"""
+
+        statement = select(Department).where(Department.deleted_at.is_(None))
+        if keyword:
+            pattern = f"%{keyword}%"
+            statement = statement.where(
+                Department.name.ilike(pattern) | Department.code.ilike(pattern)
+            )
+        if status is not None:
+            statement = statement.where(Department.status == status)
+        if parent_id is not None:
+            statement = statement.where(Department.parent_id == parent_id)
+        total = await self._session.scalar(select(func.count()).select_from(statement.subquery()))
+        items = await self._session.scalars(
+            statement.order_by(Department.sort.asc(), Department.name.asc(), Department.id.asc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return list(items), int(total or 0)
 
     async def create(self, department: Department) -> Department:
         self._session.add(department)

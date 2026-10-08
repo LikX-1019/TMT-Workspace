@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -69,6 +70,36 @@ class UserRead(BaseModel):
     deleted_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class OrganizationSummary(BaseModel):
+    """列表/详情中内嵌的组织对象摘要。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    code: str
+
+
+class UserListQuery(BaseModel):
+    """用户列表查询参数：排序为 allowlist（Literal），防止任意排序注入。"""
+
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=20, ge=1, le=100)
+    keyword: str | None = Field(default=None, max_length=128)
+    account_status: AccountStatusDTO | None = None
+    employment_status: EmploymentStatusDTO | None = None
+    department_id: UUID | None = None
+    order_by: Literal["created_at", "username", "employee_no"] = "created_at"
+    order: Literal["asc", "desc"] = "desc"
+
+
+class UserManagementRead(UserRead):
+    """管理视角的用户视图：附主部门/主职位摘要；绝不含凭据字段。"""
+
+    primary_department: OrganizationSummary | None = None
+    primary_position: OrganizationSummary | None = None
 
 
 class UserDepartmentRead(BaseModel):

@@ -32,6 +32,30 @@ class AuthenticationError(AppError):
     message = "Authentication is required."
 
 
+class SessionRevokedError(AppError):
+    """The session referenced by valid credentials was revoked server-side."""
+
+    code = "SESSION_REVOKED"
+    status_code = 401
+    message = "The session is no longer active. Please sign in again."
+
+
+class RateLimitError(AppError):
+    """Too many attempts within the configured window."""
+
+    code = "RATE_LIMITED"
+    status_code = 429
+    message = "Too many attempts. Please try again later."
+
+
+class PasswordPolicyError(AppError):
+    """A proposed password violates the configured password policy."""
+
+    code = "PASSWORD_POLICY_VIOLATED"
+    status_code = 422
+    message = "The password does not satisfy the password policy."
+
+
 class AuthorizationError(AppError):
     code = "AUTHORIZATION_FAILED"
     status_code = 403

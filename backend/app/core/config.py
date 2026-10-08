@@ -44,9 +44,21 @@ class Settings(BaseSettings):
     refresh_token_ttl_days: int = 14
     jwt_algorithm: Literal["HS256"] = "HS256"
 
+    refresh_cookie_name: str = "tmt_refresh_token"
+    refresh_cookie_path: str = "/api/v1/auth"
+    refresh_cookie_samesite: Literal["lax", "strict"] = "lax"
+    refresh_cookie_secure: bool = False
+
+    login_max_attempts: int = 10
+    login_window_seconds: int = 300
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def access_token_ttl_seconds(self) -> int:
+        return self.access_token_ttl_minutes * 60
 
     @property
     def requires_explicit_secret(self) -> bool:
@@ -64,6 +76,14 @@ class Settings(BaseSettings):
             raise ValueError(
                 "TMT_SECRET_KEY must be explicitly configured for development/production"
             )
+        return self
+
+    @model_validator(mode="after")
+    def force_secure_refresh_cookie_in_production(self) -> "Settings":
+        """Fail closed: production refresh cookies are always Secure."""
+
+        if self.is_production:
+            self.refresh_cookie_secure = True
         return self
 
 

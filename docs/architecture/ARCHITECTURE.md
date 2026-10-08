@@ -47,7 +47,7 @@ frontend/
   src/router/      # Static shell routes; protected routes remain contract-driven
   src/stores/      # Pinia state
   src/modules/     # System/public modules
-  src/workspaces/  # Future department workspaces
+  src/workspaces/  # Workspace entry placeholders (codes fixed by the backend registry)
 
 backend/
   app/api/         # Versioned router composition only
@@ -155,6 +155,8 @@ backend/app/modules/reports/
 ```
 
 A **Workspace** is a navigation and access container. It composes menus, permissions, routes, and department access into a coherent employee experience. A **Domain Module** owns a business capability and its data. For example, Operation Center may present routes from `products`, `advertising`, and `reports`; Warehouse Center may compose `inventory` and `orders`. Do not create a `modules/operation` module just because a workspace has that name.
+
+Since Phase 3A the set of workspaces that may exist is a **code-owned registry** (`backend/app/modules/workspaces/registry.py`) — currently `operation`, `product`, `procurement` (canonical; `purchase` was renamed), `warehouse`, `customer-service`, `finance`, `hr`, `tech`. Each registry workspace deterministically derives one `workspace:<code>:access` permission into the permission catalog. `workspace_departments` records product/organization association and grants nothing; System Management remains platform capability under `system:*` codes and is never a business workspace.
 
 Each capability module registers routes, permissions, and workspace/menu metadata through the same platform contracts as the system management area.
 

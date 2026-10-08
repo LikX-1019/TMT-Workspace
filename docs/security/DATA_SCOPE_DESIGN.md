@@ -11,6 +11,15 @@ Phase 0 designs the mechanism but does not implement business data filters.
 | Type | Meaning |
 | --- | --- |
 | `ALL` | All rows allowed by the operation and workspace |
+
+> Phase 3A boundary: `workspace_departments` is product/organization metadata.
+> It is **not** a data-scope table and **not** an access grant — a user whose
+> department is associated with workspace X does not gain workspace X access
+> (or any row visibility) from that association. Workspace access comes only
+> from `RolePermission → workspace:<code>:access`, and row visibility comes
+> only from the role's `data_scope_type` plus (in a later phase)
+> `role_data_scope_departments`. No `role_data_scope_departments` table exists
+> yet.
 | `DEPARTMENT` | Rows belonging to the user's current primary department |
 | `DEPARTMENT_AND_CHILDREN` | Primary department and all descendant departments |
 | `SELF` | Rows owned by or assigned to the current user |

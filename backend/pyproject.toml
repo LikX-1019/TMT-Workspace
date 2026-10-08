@@ -8,8 +8,10 @@ dependencies = [
   "alembic>=1.13,<2",
   "asyncpg>=0.29,<1",
   "fastapi>=0.115,<1",
+  "pwdlib[argon2]>=0.2,<1",
   "pydantic[email]>=2.8,<3",
   "pydantic-settings>=2.4,<3",
+  "pyjwt>=2.9,<3",
   "redis>=5.0,<6",
   "sqlalchemy[asyncio]>=2.0,<3",
   "uvicorn[standard]>=0.30,<1",
@@ -56,10 +58,22 @@ select = [
   "T20",
   "UP",
 ]
-ignore = ["S101"]
+ignore = [
+  "S101",
+  # 语言规则（AGENTS.md）：注释与文档字符串使用中文，全角标点是正常书写，
+  # 不再视为“歧义 Unicode”。RUF001 作用于字符串、RUF002 作用于文档字符串、RUF003 作用于注释。
+  "RUF001",
+  "RUF002",
+  "RUF003",
+]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S105", "S106", "S603"]
+# OAuth vocabulary ("token_type: bearer", access-token fields) is not secret material.
+"app/modules/auth/schemas.py" = ["S105"]
+"app/modules/auth/api.py" = ["S106"]
+"app/modules/auth/service.py" = ["S105"]
+"app/cli.py" = ["T201"]  # CLI 输出本身就是产品接口，不是调试打印。
 
 [tool.mypy]
 python_version = "3.12"

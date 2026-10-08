@@ -1,8 +1,9 @@
 """User and organization assignment persistence boundary."""
 
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -16,6 +17,89 @@ class UserRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def list_page(
+        self,
+        *,
+        offset: int,
+        limit: int,
+        keyword: str | None = None,
+        account_status: str | None = None,
+        employment_status: str | None = None,
+        department_id: UUID | None = None,
+        order_column: Any = None,
+        descending: bool = True,
+    ) -> tuple[list[User], int]:
+        """管理端分页列表：keyword/状态/部门过滤 + allowlist 排序。
+
+        keyword 模糊匹配 username/name/email/employee_no；department_id 过滤
+        是管理员主动的查询条件（不是数据范围强制）。返回 (items, total)。
+        """
+
+        statement = select(User).where(User.deleted_at.is_(None))
+        if keyword:
+            pattern = f"%{keyword}%"
+            statement = statement.where(
+                User.username.ilike(pattern)
+                | User.name.ilike(pattern)
+                | User.email.ilike(pattern)
+                | User.employee_no.ilike(pattern)
+            )
+        if account_status is not None:
+            statement = statement.where(User.account_status == account_status)
+        if employment_status is not None:
+            statement = statement.where(User.employment_status == employment_status)
+        if department_id is not None:
+            statement = statement.where(
+                User.id.in_(
+                    select(UserDepartment.user_id).where(
+                        UserDepartment.department_id == department_id
+                    )
+                )
+            )
+
+        total = await self._session.scalar(select(func.count()).select_from(statement.subquery()))
+
+        order_column = order_column if order_column is not None else User.created_at
+        direction = order_column.desc() if descending else order_column.asc()
+        items = await self._session.scalars(
+            statement.order_by(direction, User.id.desc()).offset(offset).limit(limit)
+        )
+        return list(items), int(total or 0)
+
+    async def list_primary_departments(self, user_ids: list[UUID]) -> dict[UUID, Department]:
+        """一次 IN 查询取多个用户的主部门（活跃），避免行级 N+1。"""
+
+        if not user_ids:
+            return {}
+        statement = (
+            select(UserDepartment.user_id, Department)
+            .join(Department, UserDepartment.department_id == Department.id)
+            .where(
+                UserDepartment.user_id.in_(user_ids),
+                UserDepartment.is_primary.is_(True),
+                Department.deleted_at.is_(None),
+            )
+        )
+        rows = await self._session.execute(statement)
+        return dict(rows.all())
+
+    async def list_primary_positions(self, user_ids: list[UUID]) -> dict[UUID, Position]:
+        """一次 IN 查询取多个用户的主职位（活跃），避免行级 N+1。"""
+
+        if not user_ids:
+            return {}
+        statement = (
+            select(UserPosition.user_id, Position)
+            .join(Position, UserPosition.position_id == Position.id)
+            .where(
+                UserPosition.user_id.in_(user_ids),
+                UserPosition.is_primary.is_(True),
+                Position.deleted_at.is_(None),
+            )
+        )
+        rows = await self._session.execute(statement)
+        return dict(rows.all())
 
     async def get_by_id(self, user_id: UUID, *, include_deleted: bool = False) -> User | None:
         statement = select(User).where(User.id == user_id)
@@ -82,6 +166,21 @@ class UserRepository:
         )
         return list(result)
 
+    async def get_primary_department(self, user_id: UUID) -> UserDepartment | None:
+        """Return the active primary department assignment with its department."""
+
+        statement = (
+            select(UserDepartment)
+            .options(selectinload(UserDepartment.department))
+            .join(Department, UserDepartment.department_id == Department.id)
+            .where(
+                UserDepartment.user_id == user_id,
+                UserDepartment.is_primary.is_(True),
+                Department.deleted_at.is_(None),
+            )
+        )
+        return await self._session.scalar(statement)
+
     async def clear_primary_departments(
         self, user_id: UUID, *, excluding_department_id: UUID | None
     ) -> None:
@@ -122,6 +221,21 @@ class UserRepository:
             )
         )
         return list(result)
+
+    async def get_primary_position(self, user_id: UUID) -> UserPosition | None:
+        """Return the active primary position assignment with its position."""
+
+        statement = (
+            select(UserPosition)
+            .options(selectinload(UserPosition.position))
+            .join(Position, UserPosition.position_id == Position.id)
+            .where(
+                UserPosition.user_id == user_id,
+                UserPosition.is_primary.is_(True),
+                Position.deleted_at.is_(None),
+            )
+        )
+        return await self._session.scalar(statement)
 
     async def clear_primary_positions(
         self, user_id: UUID, *, excluding_position_id: UUID | None

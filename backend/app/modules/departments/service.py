@@ -99,6 +99,31 @@ class DepartmentService:
         await self._session.flush()
         return department
 
+    async def enable(self, department_id: UUID) -> Department:
+        department = await self.get_active(department_id)
+        department.status = DepartmentStatus.ACTIVE
+        await self._session.flush()
+        return department
+
+    async def list_page(
+        self,
+        *,
+        offset: int,
+        limit: int,
+        keyword: str | None = None,
+        status: DepartmentStatus | None = None,
+        parent_id: UUID | None = None,
+    ) -> tuple[list[Department], int]:
+        """管理端分页列表（含 disabled、不含软删）。"""
+
+        return await self._repository.list_page(
+            offset=offset,
+            limit=limit,
+            keyword=keyword,
+            status=status.value if status is not None else None,
+            parent_id=parent_id,
+        )
+
     async def soft_delete(self, department_id: UUID) -> Department:
         department = await self.get_active(department_id)
         department.deleted_at = utc_now()

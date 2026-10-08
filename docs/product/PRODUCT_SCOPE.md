@@ -53,24 +53,19 @@ Explicitly excluded from Phase 0:
 
 ## Future Center Model
 
-The platform will expose first-class workspaces, but their implementation remains out of Phase 0:
+The platform will expose first-class workspaces. Since Phase 3A, the set of workspaces that may exist is a code-owned registry (`backend/app/modules/workspaces/registry.py`); the currently registered codes match the frontend placeholder directories one-to-one:
 
 ```text
-Home
-Operation Center
-Product Center
-Procurement Center
-Supply Chain Center
-Warehouse Center
-Customer Service Center
-Finance Center
-HR Center
-Technology Center
-Public Center
-System Management
+operation  product  procurement  warehouse  customer-service  finance  hr  tech
 ```
 
-Workspaces must not be hard-wired one-to-one to departments. One workspace may serve many departments, and one department may access multiple workspaces.
+Naming decisions locked in Phase 3A:
+
+- `procurement` (not `purchase`) is the single canonical code for the procurement workspace; the frontend placeholder directory was renamed accordingly. No document or code may reintroduce `purchase` for the same concept.
+- `Home`, `Public`, and `Supply Chain` centers have no frontend entry or product consumer yet and are therefore **not** registered; they may join the registry only when a real consumer exists.
+- **System Management is platform capability, not a business workspace**: user/department/position/role/permission administration stays in `src/modules/system/` under the existing platform routes and must never be registered as `workspace:*` or moved into a workspace directory.
+
+Workspaces must not be hard-wired one-to-one to departments. One workspace may serve many departments, and one department may access multiple workspaces — recorded as `workspace_departments` metadata, which grants nothing by itself.
 
 ## Success Criteria for Phase 0
 

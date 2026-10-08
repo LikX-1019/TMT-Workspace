@@ -17,7 +17,16 @@ from app.modules.users.models import (
     UserPosition,
 )
 from app.modules.users.repository import UserRepository
-from app.modules.users.schemas import UserCreate, UserUpdate
+from app.modules.users.schemas import (
+    AccountStatusDTO,
+    EmploymentStatusDTO,
+    OrganizationSummary,
+    UserCreate,
+    UserListQuery,
+    UserManagementRead,
+    UserRead,
+    UserUpdate,
+)
 
 
 class UserService:
@@ -61,9 +70,94 @@ class UserService:
             raise NotFoundError("User not found.")
         return user
 
-    async def update(self, user_id: UUID, payload: UserUpdate) -> User:
+    async def get_management_view(self, user_id: UUID) -> UserManagementRead:
+        """详情视图：身份字段 + 主部门/主职位摘要，绝不含任何凭据信息。"""
+
+        user = await self.get_active(user_id)
+        primary_department = await self._repository.get_primary_department(user.id)
+        primary_position = await self._repository.get_primary_position(user.id)
+        return self._to_management_read(
+            user,
+            primary_department.department if primary_department else None,
+            primary_position.position if primary_position else None,
+        )
+
+    async def list_users(self, query: UserListQuery) -> tuple[list[UserManagementRead], int]:
+        """管理端分页列表：固定查询次数组装主部门/主职位，无行级 N+1。
+
+        注意：department 过滤只是管理员的查询条件，不是数据范围强制；
+        拥有 ``system:user:list`` 即可查询全量用户（Phase 2C 边界）。
+        """
+
+        order_column = {
+            "created_at": User.created_at,
+            "username": User.username,
+            "employee_no": User.employee_no,
+        }[query.order_by]
+        items, total = await self._repository.list_page(
+            offset=(query.page - 1) * query.page_size,
+            limit=query.page_size,
+            keyword=query.keyword,
+            account_status=query.account_status.value if query.account_status else None,
+            employment_status=(query.employment_status.value if query.employment_status else None),
+            department_id=query.department_id,
+            order_column=order_column,
+            descending=query.order == "desc",
+        )
+        primary_departments = await self._repository.list_primary_departments(
+            [user.id for user in items]
+        )
+        primary_positions = await self._repository.list_primary_positions(
+            [user.id for user in items]
+        )
+        reads = [
+            self._to_management_read(
+                user,
+                primary_departments.get(user.id),
+                primary_positions.get(user.id),
+            )
+            for user in items
+        ]
+        return reads, total
+
+    async def disable(self, user_id: UUID, *, operator_id: UUID) -> User:
+        """禁用账号（account 层面），下一认证请求立即被拒。
+
+        禁止操作者禁用自己：这会让当前管理员立即失去唯一操作入口。
+        Phase 1B 的 ``get_current_user`` 逐请求校验账号状态，因此无需
+        额外的会话吊销即可即时生效。
+        """
+
+        user = await self._require_other_user(user_id, operator_id, action="disable")
+        user.account_status = AccountStatus.DISABLED
+        await self._session.flush()
+        return user
+
+    async def enable(self, user_id: UUID) -> User:
+        user = await self.get_active(user_id)
+        user.account_status = AccountStatus.ACTIVE
+        await self._session.flush()
+        return user
+
+    async def resign(self, user_id: UUID, *, operator_id: UUID) -> User:
+        """员工离职（employment 层面），与账号禁用是两个概念。
+
+        同样禁止操作者对自己执行：离职状态会让下一认证请求立即 401。
+        """
+
+        user = await self._require_other_user(user_id, operator_id, action="resign")
+        user.employment_status = EmploymentStatus.RESIGNED
+        await self._session.flush()
+        return user
+
+    async def update(
+        self, user_id: UUID, payload: UserUpdate, *, operator_id: UUID | None = None
+    ) -> User:
         user = await self.get_active(user_id)
         changes = payload.model_dump(exclude_unset=True)
+
+        if operator_id is not None and user.id == operator_id:
+            self._reject_self_lockout(payload=payload)
 
         employee_no = user.employee_no
         username = user.username
@@ -179,6 +273,43 @@ class UserService:
     async def list_positions(self, user_id: UUID) -> list[UserPosition]:
         await self.get_active(user_id)
         return await self._repository.list_positions(user_id)
+
+    async def _require_other_user(self, user_id: UUID, operator_id: UUID, *, action: str) -> User:
+        """取目标用户并拒绝操作者对自己执行锁定类操作。"""
+
+        if user_id == operator_id:
+            raise ConflictError(f"You cannot {action} your own account.")
+        return await self.get_active(user_id)
+
+    @staticmethod
+    def _reject_self_lockout(*, payload: UserUpdate) -> None:
+        """PATCH 自我保护：不允许管理员通过 PATCH 把自己踢出系统。"""
+
+        if payload.account_status is AccountStatusDTO.DISABLED:
+            raise ConflictError("You cannot disable your own account.")
+        if payload.employment_status is EmploymentStatusDTO.RESIGNED:
+            raise ConflictError("You cannot resign your own account.")
+
+    def _to_management_read(
+        self,
+        user: User,
+        primary_department: object | None,
+        primary_position: object | None,
+    ) -> UserManagementRead:
+        base = UserRead.model_validate(user)
+        return UserManagementRead(
+            **base.model_dump(),
+            primary_department=(
+                OrganizationSummary.model_validate(primary_department)
+                if primary_department is not None
+                else None
+            ),
+            primary_position=(
+                OrganizationSummary.model_validate(primary_position)
+                if primary_position is not None
+                else None
+            ),
+        )
 
     async def _ensure_identifiers_available(
         self,

@@ -58,7 +58,7 @@ Services normalize `username`, `email`, `department.code`, and `position.code` b
 
 ## Implemented Organization And Identity Tables
 
-The first business migration creates only the five tables below.
+Migration `0001_organization_identity` creates the five identity tables below; migration `0002_authentication` adds the three authentication tables (`local_credentials`, `refresh_tokens`, `login_logs`); migration `0003_rbac_foundation` adds the four RBAC tables (`roles`, `permissions`, `user_roles`, `role_permissions`).
 
 ### users
 
@@ -176,109 +176,135 @@ Constraints:
 - unique `(user_id, position_id)`;
 - partial unique `user_id WHERE is_primary IS TRUE`.
 
-### Deferred credentials and authorization tables
+### Deferred authorization tables
 
-`users.password_hash` is intentionally absent. A future local credential aggregate belongs to Phase 1B. Roles, permissions, workspaces, menus, announcements, audit logs, login logs, and refresh-token lineage tables are not created in Phase 1A.
+`users.password_hash` is intentionally absent; local password verification lives in `local_credentials` (see above). Workspaces, menus, and announcements tables are planned for later phases. RBAC tables are implemented since Phase 2A (below).
 
-### roles
+### roles (migration 0003)
 
-Key columns:
-
-- `id UUID PK`
-- `name VARCHAR NOT NULL`
-- `code VARCHAR UNIQUE`
-- `description VARCHAR NULL`
-- `data_scope_type VARCHAR NOT NULL`
-- `sort INTEGER NOT NULL`
-- `status VARCHAR NOT NULL`
-- `is_system BOOLEAN NOT NULL`
-- `deleted_at TIMESTAMPTZ NULL`
-- timestamp fields
-
-### permissions
+Implemented in Phase 2A.
 
 Key columns:
 
 - `id UUID PK`
-- `code VARCHAR UNIQUE`
-- `name VARCHAR NOT NULL`
-- `kind VARCHAR NOT NULL`
-- `module VARCHAR NOT NULL`
-- `description VARCHAR NULL`
-- `status VARCHAR NOT NULL`
-- timestamp fields
+- `name VARCHAR(128) NOT NULL`
+- `code VARCHAR(64) UNIQUE NOT NULL` — stable identifier, never updated after creation
+- `description TEXT NULL`
+- `data_scope_type VARCHAR(32) NOT NULL DEFAULT 'self'` CHECK in (`all`, `department`, `department_and_children`, `self`, `custom`) — stored policy only; unenforced until the data-scope phase
+- `sort INTEGER NOT NULL DEFAULT 0`
+- `status VARCHAR(32) NOT NULL` CHECK in (`active`, `disabled`) — disabled roles contribute no permissions
+- `is_system BOOLEAN NOT NULL DEFAULT false` — system roles are protected from disable/delete
+- `deleted_at TIMESTAMPTZ NULL` — soft delete only; historical grants stay inspectable
+- `created_at/updated_at`
 
-### role_permissions
+Indexes: unique `code`; index on `status`.
 
-Key columns:
+### permissions (migration 0003)
 
-- `role_id UUID FK roles.id`
-- `permission_id UUID FK permissions.id`
-- composite PK `(role_id, permission_id)`
-
-### user_roles
+Implemented in Phase 2A. Rows mirror the code-owned catalog
+(`app/modules/rbac/catalog.py`); the database never invents codes.
 
 Key columns:
 
 - `id UUID PK`
-- `user_id UUID FK users.id`
-- `role_id UUID FK roles.id`
-- `assigned_by UUID NULL FK users.id`
+- `code VARCHAR(128) UNIQUE NOT NULL` — `<namespace>:<resource>:<action>`
+- `name VARCHAR(128) NOT NULL`
+- `kind VARCHAR(32) NOT NULL` CHECK in (`action`, `workspace`, `menu`) — Phase 2A seeds `action` only
+- `module VARCHAR(64) NOT NULL`
+- `description TEXT NULL`
+- `status VARCHAR(32) NOT NULL` CHECK in (`active`, `disabled`) — sync disables removed codes, never deletes
+- `created_at/updated_at`
+
+Indexes: unique `code`; index on `status`.
+
+### role_permissions (migration 0003)
+
+Grant association with composite primary key; rows are never cascaded away.
+
+- `role_id UUID FK roles.id ON DELETE RESTRICT` (PK part)
+- `permission_id UUID FK permissions.id ON DELETE RESTRICT` (PK part)
+- `created_at TIMESTAMPTZ NOT NULL`
+
+### user_roles (migration 0003)
+
+The only path from users to permissions; no direct user-permission rows exist.
+
+- `id UUID PK`
+- `user_id UUID FK users.id ON DELETE RESTRICT`
+- `role_id UUID FK roles.id ON DELETE RESTRICT`
+- `assigned_by UUID NULL FK users.id ON DELETE RESTRICT` — acting administrator (evidence, not authorization input)
 - `assigned_at TIMESTAMPTZ NOT NULL`
-- optional validity window
+- `created_at/updated_at`
+
+Constraints/indexes: unique `(user_id, role_id)`; index on `role_id`. An optional validity window stays deferred until a product requirement asks for temporary roles.
 
 Constraints:
 
 - unique current `(user_id, role_id)` assignment;
 - indexes on both foreign keys.
 
-### workspaces
+### workspaces (implemented in Phase 3A)
+
+Mirror of the code-owned workspace registry; the registry defines what may exist, the database stores operational state.
 
 Key columns:
 
 - `id UUID PK`
-- `name VARCHAR NOT NULL`
-- `code VARCHAR UNIQUE`
-- `icon VARCHAR NULL`
-- `description VARCHAR NULL`
-- `home_path VARCHAR NULL`
-- `sort INTEGER NOT NULL`
-- `status VARCHAR NOT NULL`
-- timestamp fields
-
-### workspace_departments
-
-Key columns:
-
-- `workspace_id UUID FK workspaces.id`
-- `department_id UUID FK departments.id`
-- `is_default BOOLEAN NOT NULL`
-- composite PK `(workspace_id, department_id)`
-
-### menus
-
-Key columns:
-
-- `id UUID PK`
-- `parent_id UUID NULL FK menus.id`
-- `workspace_id UUID FK workspaces.id`
-- `name VARCHAR NOT NULL`
-- `menu_type VARCHAR NOT NULL`
-- `route VARCHAR NULL`
-- `component VARCHAR NULL`
-- `icon VARCHAR NULL`
-- `permission_code VARCHAR NULL`
-- `sort INTEGER NOT NULL`
-- `visible BOOLEAN NOT NULL`
-- `status VARCHAR NOT NULL`
+- `code VARCHAR(64) NOT NULL UNIQUE` — stable software identifier; never reused, even after soft delete
+- `name VARCHAR(128) NOT NULL`
+- `description TEXT NULL`
+- `icon VARCHAR(128) NULL`
+- `home_path VARCHAR(256) NULL` — workspace-relative path when set
+- `sort INTEGER NOT NULL DEFAULT 0`
+- `status VARCHAR(32) NOT NULL` CHECK in (`active`, `disabled`)
 - `deleted_at TIMESTAMPTZ NULL`
 - timestamp fields
 
-Indexes/constraints:
+Indexes: `(status)`, `(deleted_at)`; uniqueness on `code`.
 
-- index `(workspace_id, parent_id, sort)`;
-- foreign key or consistency validation against `permissions.code`;
-- directory/page/action-specific validation at service or constraint level.
+Ownership split: `code` is registry-owned/immutable; `name`, `description`, `icon`, `home_path`, `sort` are registry-seeded display metadata (future management features may adjust); `status` is operator-owned and never changed back by a sync.
+
+### workspace_departments (implemented in Phase 3A)
+
+Pure many-to-many product/organization association. **It grants nothing**: workspace access comes only from `RolePermission → workspace:<code>:access`.
+
+Key columns:
+
+- `workspace_id UUID FK workspaces.id ON DELETE RESTRICT` (composite PK)
+- `department_id UUID FK departments.id ON DELETE RESTRICT` (composite PK)
+- composite PK `(workspace_id, department_id)` — the uniqueness guarantee; no separate UNIQUE constraint (it would be redundant, and Alembic's online DDL silently drops it)
+
+There is deliberately **no `is_default` column**: no product consumer exists for a "default workspace per department" semantic; add it only when one appears.
+
+Index: `(department_id)` for the reverse lookup (the PK covers `workspace_id`-first queries).
+
+### menus (implemented in Phase 3A)
+
+Navigation metadata for one workspace. Menu visibility is UX, never backend authorization.
+
+Key columns:
+
+- `id UUID PK`
+- `workspace_id UUID FK workspaces.id ON DELETE RESTRICT`
+- `parent_id UUID NULL FK menus.id ON DELETE RESTRICT` — adjacency list, no closure table
+- `code VARCHAR(64) NOT NULL` — stable within the workspace for its full lifetime (soft-deleted rows keep occupying it)
+- `name VARCHAR(128) NOT NULL`
+- `menu_type VARCHAR(32) NOT NULL` CHECK in (`directory`, `page`) — button/action permissions are not menu rows
+- `route_path VARCHAR(256) NULL` — **workspace-relative** (for example `dashboard`); directories keep it NULL; the frontend composes full URLs
+- `component_key VARCHAR(128) NULL` — stable key resolved by the frontend component registry; never a raw import path
+- `icon VARCHAR(128) NULL`
+- `permission_code VARCHAR(128) NULL` — UI visibility only; the service validates it against the active code-owned catalog
+- `sort INTEGER NOT NULL DEFAULT 0`
+- `visible BOOLEAN NOT NULL DEFAULT TRUE`
+- `status VARCHAR(32) NOT NULL` CHECK in (`active`, `disabled`)
+- `deleted_at TIMESTAMPTZ NULL`
+- timestamp fields
+
+Constraints/indexes:
+
+- `UNIQUE (workspace_id, code)`;
+- CHECK `parent_id IS NULL OR id <> parent_id` (self-parent); descendant cycles are prevented in `MenuService` with the PostgreSQL recursive CTE;
+- index `(workspace_id, parent_id, sort)` for tree composition; `(permission_code)` for permission-reference lookups; `(deleted_at)`; `menus.status` stays unindexed alone (low cardinality, always queried together with workspace scope).
 
 ### announcements
 
@@ -342,37 +368,62 @@ Indexes:
 
 `updated_at` is intentionally omitted because audit rows are immutable.
 
-### refresh_tokens
+### local_credentials (migration 0002)
+
+One row per user with local password access; `user_id` is unique so a user has at most one local credential. Password hashes never live on `users`, keeping identity and credential concerns separated.
 
 Key columns:
 
 - `id UUID PK`
-- `user_id UUID FK users.id`
-- `token_hash VARCHAR UNIQUE`
-- `issued_at TIMESTAMPTZ`
-- `expires_at TIMESTAMPTZ`
-- `revoked_at TIMESTAMPTZ NULL`
-- `replaced_by_id UUID NULL FK refresh_tokens.id`
-- `client_id VARCHAR NULL`
-- `ip INET NULL`
-- `user_agent TEXT NULL`
+- `user_id UUID UNIQUE FK users.id ON DELETE RESTRICT`
+- `password_hash VARCHAR(255) NOT NULL` (Argon2id via pwdlib)
+- `password_changed_at TIMESTAMPTZ NOT NULL`
+- `must_change_password BOOLEAN NOT NULL DEFAULT false`
+- `created_at/updated_at`
 
 Indexes:
 
-- `(user_id, expires_at)`;
-- `token_hash`.
+- unique on `user_id`.
 
-### login_logs
+### refresh_tokens (migration 0002)
+
+One row per issued refresh token. `token_hash` stores a SHA-256 hex digest of the opaque token value; the raw token exists only in the browser cookie. `session_id` groups a login's token family for rotation lineage and reuse-detection revocation.
 
 Key columns:
 
 - `id UUID PK`
-- `username VARCHAR`
+- `session_id UUID NOT NULL`
+- `user_id UUID FK users.id`
+- `token_hash VARCHAR(64) UNIQUE NOT NULL`
+- `issued_at TIMESTAMPTZ NOT NULL`
+- `expires_at TIMESTAMPTZ NOT NULL`
+- `revoked_at TIMESTAMPTZ NULL`
+- `replaced_by_id UUID NULL FK refresh_tokens.id ON DELETE RESTRICT`
+- `ip INET NULL`
+- `user_agent TEXT NULL`
+- `created_at TIMESTAMPTZ`
+
+Indexes:
+
+- `token_hash` unique (lookup key for refresh);
+- `session_id` (family revocation);
+- `(user_id, expires_at)` (user session listing/cleanup).
+
+`client_id` is deferred until a second client type exists; all Phase 1B tokens are browser sessions.
+
+### login_logs (migration 0002)
+
+Immutable authentication evidence. Rows are written on every login attempt, success or failure, through an independent session so a rolled-back request cannot erase the evidence.
+
+Key columns:
+
+- `id UUID PK`
+- `username VARCHAR(64) NOT NULL` (as submitted, even for unknown users)
 - `user_id UUID NULL FK users.id`
-- `result VARCHAR NOT NULL`
-- `failure_reason VARCHAR NULL`
-- `ip INET`
-- `user_agent TEXT`
+- `result VARCHAR NOT NULL` CHECK in (`success`, `failure`, `rate_limited`)
+- `failure_reason VARCHAR(64) NULL` (`bad_password`, `missing_credential`, `user_disabled`, `user_locked`, `user_resigned`, `user_deleted`)
+- `ip INET NULL` (direct peer address)
+- `user_agent TEXT NULL`
 - `created_at TIMESTAMPTZ`
 
 Indexes:

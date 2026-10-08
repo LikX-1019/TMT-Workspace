@@ -12,6 +12,7 @@ from app.api.v1 import api_router
 from app.common.responses import ErrorDetail, ErrorEnvelope
 from app.core.config import get_settings
 from app.core.exceptions import AppError, ValidationError
+from app.core.redis import close_redis
 from app.db.session import dispose_engine
 
 
@@ -19,6 +20,7 @@ from app.db.session import dispose_engine
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
     await dispose_engine()
+    await close_redis()
 
 
 def create_app() -> FastAPI:
@@ -50,8 +52,13 @@ def _register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
         del request
+        headers: dict[str, str] | None = None
+        if exc.status_code == 401:
+            # Per the API error contract, 401 responses advertise the scheme.
+            headers = {"WWW-Authenticate": "Bearer"}
         return JSONResponse(
             status_code=exc.status_code,
+            headers=headers,
             content=ErrorEnvelope(
                 error=ErrorDetail(code=exc.code, message=exc.message, details=exc.details)
             ).model_dump(),
